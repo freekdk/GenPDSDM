@@ -26,7 +26,9 @@
 # in this page will be installed right from the beginning.
 #
 # Version history
-# Version 1.0
+# Version 1.0 First release
+# Version 1.0.1 Restrict disable_vrfy_command=yes to after ORIGINATING in submission
+# Version 1.0.2 Milter to port 8893 is for opendkim (currenly not supported) removed
 #
 # Version designed on openSUSE Leap 15.5 on Raspberry Pi 4B
 # This version should also work in other environments of openSUSE
@@ -576,15 +578,18 @@ if [ -z "$MASTERCF_done" -o $NEW -eq 0 ] ; then
     echo "====================================="
     [ -e /etc/genpdsdm/master.cf.org ] && cp -a /etc/genpdsdm/master.cf.org /etc/postfix/master.cf
     cat <<EOF > /tmp/sedscript.txt
-/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
-    -o smtpd_milters=inet:127.0.0.1:8893
+#/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
+#    -o smtpd_milters=inet:127.0.0.1:8893
+/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit
 /^#amavis    unix/,/#  -o max_use=20/ s/^#//
 /^#submission inet/,/^#   -o smtpd_reject_unlisted_recipient=no/ {
      s/10024/10026/
      s/^#//
      }
-/^#   -o smtpd_recipient_restrictions=/,/^#   -o milter_macro_daemon_name=ORIGINATING/ s/^#//
-/milter_macro_daemon_name=ORIGINATING/a\   -o disable_vrfy_command=yes
+/^#   -o smtpd_recipient_restrictions=/,/^#   -o milter_macro_daemon_name=ORIGINATING/ {
+     s/^#//
+     /milter_macro_daemon_name=ORIGINATING/a\   -o disable_vrfy_command=yes
+     }
 /^#localhost:10025 inet/,/^#  -o relay_recipient_maps=/ s/#//
 EOF
     sed -i -f /tmp/sedscript.txt /etc/postfix/master.cf
