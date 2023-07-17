@@ -6,3 +6,5 @@ postfix-new
 scriptmaster.sed
 yast2-mail.sh
 HOWTO-git.txt
+sysconfig.postfix
+postfix
