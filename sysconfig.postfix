@@ -1,6 +1,5 @@
 ## Path:        Network/Mail/Postfix
 ## Description: Basic configuration of the postfix MTA
-
 ## Type:        string
 ## Default:     ""
 ## Config:      postfix
@@ -13,7 +12,7 @@
 # You may also specify an alternate port number, e.g.
 # relay.example.com:26 or [relay.example.com]:26 to prevent MX lookups.
 #
-POSTFIX_RELAYHOST="[mail.delta.nl]:587"
+POSTFIX_RELAYHOST=""
 
 ## Type:        string
 ## Default:     ""
@@ -42,7 +41,7 @@ POSTFIX_INET_PROTO=""
 # NOTE: If set, You should have a "MX Record" in DNS for that name
 # and have a valid reverse entry ;)
 #
-POSTFIX_MYHOSTNAME="rpi4-155.beelaertsict.nl"
+POSTFIX_MYHOSTNAME=""
 
 ## Type:        string
 ## Default:     ""
@@ -131,16 +130,25 @@ POSTFIX_UPDATE_CHROOT_JAIL="no"
 # Note: When POSTFIX_CHROOT="yes" then 'opendkim.sock' will be available
 #       in postfix CHROOT
 #
-POSTFIX_WITH_DKIM="yes"
+POSTFIX_WITH_DKIM="no"
 
-## Type:	string
-## Default:	"openDKIM"
-## Config:	Postfix
+## Type:       yesno
+## Default:    no
+## Config:     postfix
 #
-# Which DKIM will be used (openDKIM or AMAVIS_DKIM)
-# NOTE: Will only be used when AMaVis is enabled
+# Do you want to enable checks on SPF information on incoming connections
+# Note: Will only be used when SMTPD_LISTEN_REMOTE="yes" in /etc/sysconfig/mail
 #
-POSTFIX_DKIM="AMAVIS_DKIM"
+POSTFIX_SPF_CHECKS="no"
+
+## Type:       yesno
+## Default:    no
+## Config:     postfix
+#
+# Do you want to enable checks on dmarc information in incoming email
+# Note: Will only be used when SMTPD_LISTEN_REMOTE="yes" in /etc/sysconfig/mail
+#
+POSTFIX_DMARC_CHECKS="no"
 
 ## Type:        string(socket,tcp)
 ## Default:     "socket"
@@ -151,7 +159,16 @@ POSTFIX_DKIM="AMAVIS_DKIM"
 #       in postfix chroot, but you can use "tcp" just as well with DKIM
 #       on localhost
 #
-POSTFIX_DKIM_CONN="tcp"
+POSTFIX_DKIM_CONN="socket"
+
+## Type:       string
+## Default:    "openDKIM"
+## Config:     Postfix
+#
+# Which DKIM will be used (openDKIM or AMAVIS_DKIM)
+# NOTE: Will only be used when AMaVis and WITH_DKIM is enabled
+#
+POSTFIX_DKIM_TYPE="openDKIM"
 
 ## Type:        yesno
 ## Default:     no
@@ -285,7 +302,7 @@ POSTFIX_RBL_HOSTS=""
 # to your mailserver! USE THAT ON YOUR OWN RISC!!!
 # See http://www.postfix.org/uce.html for more details !
 #
-POSTFIX_BASIC_SPAM_PREVENTION="medium"
+POSTFIX_BASIC_SPAM_PREVENTION="off"
 
 ## Type:        string
 ## Default:     ""
@@ -398,7 +415,7 @@ POSTFIX_MDA="local"
 # See /usr/share/doc/packages/postfix/README_FILES/SASL_README
 # for more details.
 #
-POSTFIX_SMTP_AUTH_SERVER="yes"
+POSTFIX_SMTP_AUTH_SERVER="no"
 
 ## Type:        string(cyrus,dovecot) 
 ## Default:     "cyrus"
@@ -408,7 +425,7 @@ POSTFIX_SMTP_AUTH_SERVER="yes"
 # cyrus   : smtpd_sasl_type = cyrus,   smtpd_sasl_path = smtpd
 # dovecot : smtpd_sasl_type = dovecot, smtpd_sasl_path = private/auth
 #
-POSTFIX_SMTP_AUTH_SERVICE="dovecot"
+POSTFIX_SMTP_AUTH_SERVICE="cyrus"
 
 ## Type:        yesno 
 ## Default:     no
@@ -418,7 +435,7 @@ POSTFIX_SMTP_AUTH_SERVICE="dovecot"
 # you have to edit /etc/postfix/sasl_passwd and call
 # /usr/sbin/config.postfix afterwards
 #
-POSTFIX_SMTP_AUTH="yes"
+POSTFIX_SMTP_AUTH="no"
 
 ## Type:        string
 ## Default:     ""
@@ -440,7 +457,7 @@ POSTFIX_SMTP_AUTH_OPTIONS=""
 #
 # Do you want to use STARTTLS
 #
-POSTFIX_SMTP_TLS_SERVER="yes"
+POSTFIX_SMTP_TLS_SERVER="no"
 
 ## Type:        yesno
 ## Default:     no
@@ -461,23 +478,7 @@ POSTFIX_SMTP_TLS_SERVER_LEGACY_SUPPORT="no"
 #
 # Do you want to enable postfix smtp client to use TLS
 #
-POSTFIX_SMTP_TLS_CLIENT="yes"
-
-## Type:	yesno
-## Default:	no
-## Config:	postfix
-#
-# Do you want to enable checks on SPF information on incoming connections
-#
-POSTFIX_SPF_CHECKS="yes"
-
-## Type:	yesno
-## Default:	no
-## Config:	postfix
-#
-# Do you want to enable checks on dmarc information in incoming email
-#
-POSTFIX_DMARC_CHECKS="yes"
+POSTFIX_SMTP_TLS_CLIENT="no"
 
 ## Type:        string
 ## Default:     "/etc/postfix/ssl"
@@ -491,17 +492,6 @@ POSTFIX_DMARC_CHECKS="yes"
 POSTFIX_SSL_PATH="/etc/postfix/ssl"
 
 ## Type:        string
-## Default:     "/etc/dovecot/ssl"
-## Config:      dovecot
-#
-# path to the directory where the certificates (default: certs/dovecotcert.pem)
-# and CA certificates (default: /etc/postfixssl//cacerts) can be found
-#
-# This folder will be synced via 'config.postfix' when running 'chrooted'?
-# 
-DOVECOT_SSL_PATH="/etc/ssl/private"
-
-## Type:        string
 ## Default:     "cacert.pem"
 ## Config:      postfix
 #
@@ -512,7 +502,7 @@ DOVECOT_SSL_PATH="/etc/ssl/private"
 # is used instead. Do not forget to run c_rehash POSTFIX_SSL_PATH/cacerts
 # after storing the certs.
 # 
-POSTFIX_TLS_CAFILE="cacert.pem"
+POSTFIX_TLS_CAFILE=""
 
 ## Type:        string
 ## Default:     "certs/postfixcert.pem"
@@ -531,8 +521,19 @@ POSTFIX_TLS_CERTFILE="certs/postfixcert.pem"
 POSTFIX_TLS_KEYFILE="certs/postfixkey.pem"
 
 ## Type:        string
+## Default:     "/etc/dovecot/ssl"
+## Config:      dovecot
+#
+# path to the directory where the certificates (default: certs/dovecotcert.pem)
+# and CA certificates (default: /etc/postfixssl//cacerts) can be found
+#
+# This folder will be synced via 'config.postfix' when running 'chrooted'?
+# 
+DOVECOT_SSL_PATH="/etc/ssl/private"
+
+## Type:        string
 ## Default:     "dovecot.crt"
-## Config:      postfix
+## Config:      dovecot
 #
 # name of the file containing the certificate (below DOVECOT_SSL_PATH)
 # 
@@ -540,7 +541,7 @@ DOVECOT_TLS_CERTFILE="dovecot.crt"
 
 ## Type:        string
 ## Default:     "dovecot.pem"
-## Config:      postfix
+## Config:      dovecot
 #
 # name of the file containing the key (below DOVECOT_SSL_PATH)
 # 
@@ -553,43 +554,47 @@ DOVECOT_TLS_KEYFILE="dovecot.pem"
 #
 ## Type:        string
 ## Default:     "XX"
-POSTFIX_SSL_COUNTRY="NL"
+POSTFIX_SSL_COUNTRY=""
 
 ## Type:        string
 ## Default:     "Some state"
-POSTFIX_SSL_STATE="Zuid-Holland"
+POSTFIX_SSL_STATE=""
 
 ## Type:        string
 ## Default:     "Some locality"
-POSTFIX_SSL_LOCALITY="Benthuizen"
-
-## Type:        string
-## Default:     "Some Organizational Unit"
-POSTFIX_SSL_ORGANIZATIONAL_UNIT="E-mailserver"
+POSTFIX_SSL_LOCALITY=""
 
 ## Type:        string
 ## Default:     "Some Organization"
-POSTFIX_SSL_ORGANIZATION="Beelaerts ICT Consultancy"
+POSTFIX_SSL_ORGANIZATION=""
 
-## Type:	string
-## Default:	"Certificate Authority"
+## Type:        string
+## Default:     "Some Organizational Unit" (Email server)
+POSTFIX_SSL_ORGANIZATIONAL_UNIT=""
+
+## Type:        string
+## Default:     "Some Organizational Unit" (IMAP server)
+DOVECOT_SSL_ORGANIZATIONAL_UNIT=""
+
+## Type:       string
+## Default:    "Certificate Authority" is common name for certificate
 POSTFIX_SSL_CERTIFICATE_AUTHORITY="Certificate Authority"
 
 ## Type:        string
-## Default:     "Common name for postfix certificate"
-POSTFIX_SSL_COMMON_NAME="smtp.beelaertsict.nl"
+## Default:     "A common name for the email server {mail or smtp}.<domain>"
+POSTFIX_SSL_COMMON_NAME=""
 
 ## Type:        string
-## Default:     "ca"
-CERTIFICATE_AUTHORITY_EMAIL_ADDRESS="ca@beelaertsict.nl"
+## Default:     "Common name for dovecot, imap.<domain>"
+DOVECOT_SSL_COMMON_NAME=""
 
 ## Type:        string
-## Default:     "postmaster"
-POSTFIX_SSL_EMAIL_ADDRESS="postmaster@beelaertsict.nl"
+## Default:	"ca@<domain>"
+CERTIFICATE_AUTHORITY_EMAIL_ADDRESS=""
 
 ## Type:        string
-## Default:     "Common name for dovecot"
-DOVECOT_SSL_COMMON_NAME="imap.beelaertsict.nl"
+## Default:     "postmaster@<domain>" in certificates
+POSTFIX_SSL_EMAIL_ADDRESS=""
 
 #
 # POSTFIX_ADD_*
