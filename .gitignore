@@ -4,3 +4,5 @@ genpdsdm.history
 scriptmaster.sed
 HOWTO-git.txt
 postfix
+master.cf
+postfix-master.cf.patch

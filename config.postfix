@@ -463,7 +463,7 @@ gen_main_cf(){
 		$PCONF -e "mailbox_command = "
 		$PCONF -e "mailbox_transport = "
 	    else
-		LMTPUNIX=$(grep -E "^[[:space:]]*lmtpunix.*" /etc/cyrus.conf)
+		LMTPUNIX=$(grep -E "^[[:blank:]]*lmtpunix.*" /etc/cyrus.conf)
 		if [ -z "$LMTPUNIX" ]; then
 		    warn_user 1>&2 "you have to add\n\
 lmtpunix      cmd=\"lmtpd\" listen=\"/var/lib/imap/socket/lmtp\" prefork=1\n\
@@ -693,9 +693,8 @@ using \"off\" instead!"
 	    $PCONF -e "smtpd_tls_security_level = may"
 	    if [ -n "$POSTFIX_TLS_CAFILE" -a -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE" ]; then
 		$PCONF -e "smtpd_tls_CAfile = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE"
-	    else
-		$PCONF -e "smtpd_tls_CApath = $POSTFIX_SSL_PATH/cacerts"
 	    fi
+	    $PCONF -e "smtpd_tls_CApath = $POSTFIX_SSL_PATH/cacerts"
             if [ -n "$POSTFIX_TLS_CERTFILE" ]; then
 		if [ -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE" ]; then
 		    $PCONF -e "smtpd_tls_cert_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE"
@@ -759,9 +758,8 @@ using \"off\" instead!"
 	fi
 	if [ -n "$POSTFIX_TLS_CAFILE" -a -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE" ]; then
 	    $PCONF -e "smtp_tls_CAfile = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE"
-	else
-	    $PCONF -e "smtp_tls_CApath = $POSTFIX_SSL_PATH/cacerts"
 	fi
+	$PCONF -e "smtp_tls_CApath = $POSTFIX_SSL_PATH/cacerts"
 	if [ -n "$POSTFIX_TLS_CERTFILE" ]; then
 	    if [ -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE" ]; then
 		$PCONF -e "smtp_tls_cert_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE"
@@ -829,6 +827,11 @@ my $with_dkim =
 
 $with_dkim = lc($with_dkim);
 
+my $dkim_type =
+    defined $ENV{POSTFIX_DKIM_TYPE} ? $ENV{POSTFIX_DKIM_TYPE} : "no";
+
+$dkim_type = lc($dkim_type);
+
 my $with_ldap =
     defined $ENV{POSTFIX_WITH_LDAP} ? $ENV{POSTFIX_WITH_LDAP} : "no";
 
@@ -856,25 +859,25 @@ while( <MNCF> ) {
     chomp;
 
    if( /^\#?(smtpd_milters\s=.*)/ ) {
-     if ($with_dkim ne "yes") {
+     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = "#".$1;
      }
    } elsif( /^\#?(non_smtpd_milters\s=.*)/ ) {
-     if ($with_dkim ne "yes") {
+     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
        $line = "#".$1;
      } else {
-       $line = $1;
+       $line = "#".$1;
      }
    } elsif( /^\#?(milter_default_action\s=.*)/ ) {
-     if ($with_dkim ne "yes") {
+     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = $1;
      }
    } elsif( /^\#?(milter_protocol\s=.*)/ ) {
-     if ($with_dkim ne "yes") {
+     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = $1;
@@ -996,7 +999,7 @@ while( <MNCF> ) {
 }
 
 gen_amavisd_cf(){
-    cp /etc/amavisd.conf /etc/amavisd.conf.back
+    [ ! -f /etc/amavisd.conf.back ] && cp /etc/amavisd.conf /etc/amavisd.conf.back
     export FQHOSTNAME
     export POSTFIX_WITH_DKIM
     export POSTFIX_DKIM_TYPE
@@ -1074,24 +1077,24 @@ close(OUT);
 '
 	host=${FQHOSTNAME%%.*}
 	domain=${FQHOSTNAME#*.}
-	mkdir -p /etc/amavisd
+	mkdir -p /etc/dkim
 	if [ "${POSTFIX_DKIM_TYPE,,}" = "amavis_dkim" ] ; then
-	    if [ $(ls /etc/amavisd/${domain}.dkim*.pem 2>/dev/null | wc -l) -eq 0 ] ; then
+	    if [ $(ls /etc/dkim/${domain}.dkim*.pem 2>/dev/null | wc -l) -eq 0 ] ; then
 		date=$(date --date=now +%Y%m%d)
-		amavisd -c /etc/amavisd.conf genrsa /etc/amavisd/${domain}.dkim${date}.pem 2048
-		chmod 640 /etc/amavisd/${domain}.dkim${date}.pem
-		chown root:vscan /etc/amavisd/${domain}.dkim${date}.pem
+		amavisd -c /tmp/amavisd.conf genrsa /etc/dkim/${domain}.dkim${date}.pem 2048
+		chmod 640 /etc/dkim/${domain}.dkim${date}.pem
+		chown root:vscan /etc/dkim/${domain}.dkim${date}.pem
 	    else
-		date=$(ls /etc/amavisd/${domain}.dkim*.pem | tail -1)
+		date=$(ls /etc/dkim/${domain}.dkim*.pem | tail -1)
 		date=${date%.pem}
-		date=${date#*dkim}
+		date=${date##*dkim}
 	    fi
-	    egrep -q '^dkim_key($' /tmp/amavisd.conf
+	    grep -E -q '^dkim_key\($' /tmp/amavisd.conf
 	    [ $? -ne 0 ] && cat <<EOF >> /tmp/amavisd.conf
 dkim_key(
    '${domain}',
    'dkim${date}',
-   '/etc/amavisd/${domain}.dkim${date}.pem'
+   '/etc/dkim/${domain}.dkim${date}.pem'
    );
  @dkim_signature_options_bysender_maps = ( {
    "${domain}" => {
@@ -1102,10 +1105,61 @@ dkim_key(
      }
    } );
 EOF
-	    [ ! -e /etc/amavisd/${domain}.dkim${date}.txtrecord ] && \
-		amavisd -c /etc/amavisd.conf showkeys > /etc/amavisd/${domain}.dkim${date}.txtrecord
+	    [ ! -e /etc/dkim/${domain}.dkim${date}.txtrecord ] && \
+		amavisd -c /tmp/amavisd.conf showkeys > /etc/dkim/${domain}.dkim${date}.txtrecord
 	fi
     fi
+}
+
+gen_opendkim(){
+    if [ ! -d /etc/opendkim ] ; then
+	warn_user "\tPackage opendkim is not installed!!!\n\
+\tThis should not happen!\n\
+\tPlease reinstall package opendkim!"
+	exit 1
+    fi
+    cfolder="$(pwd)"
+    mkdir -p /etc/dkim
+    cd /etc/dkim
+    dkimfile=$(ls $domain.dkim*.pem 2>/dev/null | head -1)
+    if [ "$dkimfile" = "" ] ; then
+	date=$(date --date=now +%Y%m%d)
+	opendkim-genkey -b 2048 -h sha256 -s dkim$date -d $domain
+	chmod 640 dkim$date.private
+	mv dkim$date.private $domain.dkim$date.pem
+	mv dkim$date.txt $domain.dkim$date.txtrecord
+    else
+	date=${dkimfile%.pem}
+	date=${date##*dkim}
+    fi
+    cd $cfolder
+    grep -q -E "^# Mode[[:blank:]]+sv$" /etc/opendkim/opendkim.conf
+    if [ $? -eq 0 ] ; then
+	cat <<EOF > /tmp/sedscript.txt
+/^# Mode[[:blank:]]+sv$/ s/^# //
+/^Socket[[:blank:]]+/ c\Socket   inet:8891@localhost
+/^# ReportAddress[[:blank:]]+/ c\ReportAddress    "Postmaster $domain" <postmaster@$domain>
+/^# SoftwareHeaders[[:blank:]]+/ c\SoftwareHeaders    yes
+/^# Canonicalization[[:blank:]]+/ c\Canonicalization  relaxed/simple
+/^# Domain[[:blank:]]+/ c\Domain    $domain
+/^Selector[[:blank:]]+/ c\Selector  dkim$date
+/^# KeyFile[[:blank:]]+/ c\KeyFile   /etc/dkim/$domain.dkim$date.pem
+/^# OverSignHeaders[[:blank:]]+/ c\OverSignHeaders   From
+/^# ExternalIgnoreList[[:blank:]]+/ c\ExternalIgnoreList refile:/etc/opendkim/TrustedHosts
+/^# InternalHosts[[:blank:]]+/ c\InternalHosts refile:/etc/opendkim/TrustedHosts
+EOF
+	[ ! -e /etc/opendkim/opendkim.conf.backup ] && \
+	cp -a /etc/opendkim/opendkim.conf /etc/opendkim/opendkim.conf.backup
+	sed -r -i -f /tmp/sedscript.txt /etc/opendkim/opendkim.conf
+	rm /tmp/sedscript.txt
+	grep -q -E "^Statistics[[:blank:]]+" /etc/opendkim/opendkim.conf
+	[ $? -ne 0 ] && echo "Statistics  /var/spool/opendkim/stats.dat" >> /etc/opendkim/opendkim.conf
+	mkdir -p /var/spool/opendkim
+	echo -e "127.0.01\nlocalhost\n\n*.$domain" > /etc/opendkim/TrustedHosts
+    fi
+    [ "$(systemctl is-enabled opendkim.service)" != "enabled" ] && systemctl enable opendkim.service
+    [ "$(systemctl is-active opendkim.service)" != "active" ] && systemctl start opendkim.service || \
+	systemctl restart opendkim.service
 }
 
 gen_master_cf(){
@@ -1197,6 +1251,16 @@ while( <MCF> ) {
 	    $line = "#".$1;
 	}
     } elsif ( /^\#?(\s*-o smtpd_milters=inet:127\.0\.0\.1:)/ ) {
+	if ( $withdkim eq "yes" and $dkim eq "opendkim" ) {
+	    $line = $1."8891";
+	} elsif ( $withdkim eq "yes" and $dkim eq "opendkim" and $dmarcchecks eq "yes" ) {
+	    $line = $1."8891,inet:127.0.0.1:8893";
+	} elsif ( $dmarcchecks eq "yes" ) {
+	    $line = $1."8893";
+	} else {
+	    $line = "#".$1."8891";
+	}
+    } elsif ( /^\#?(\s*-o non_smtpd_milters=inet:127\.0\.0\.1:)/ ) {
 	if ( $withdkim eq "yes" and $dkim eq "opendkim" ) {
 	    $line = $1."8891";
 	} elsif ( $withdkim eq "yes" and $dkim eq "opendkim" and $dmarcchecks eq "yes" ) {
@@ -1595,11 +1659,12 @@ while( <MCF> ) {
 
 update_cf() {
     while test "x$1" != "x" ; do
+	TMPFILE=$(mktemp /tmp/postfix.${1}.XXXXXX) || exit 1
 	B=$( find /etc/postfix/${1} -printf %CY%Cm%Cd%Ck%CM )
 	cp /etc/postfix/${1} "/var/adm/backup/postfix/${1}$B"
 	cp /etc/postfix/${1} "/var/adm/backup/postfix/${1}"
-	eval gen_${1/\./_} > /tmp/${1}.config
-	mv /tmp/${1}.config /etc/postfix/${1};
+	eval gen_${1/\./_} >  $TMPFILE
+	mv -Z $TMPFILE /etc/postfix/${1};
 	shift
     done
 }
@@ -1758,6 +1823,8 @@ EOF
     sed -i -f /tmp/sedscript.txt /etc/dovecot/conf.d/10-mail.conf
     rm /tmp/sedscript.txt
 fi
+[ $(systemctl is-enabled dovecot.service) != "enabled" ] && systemctl enable dovecot.service
+[ $(systemctl is-active dovecot.service) != "active" ] && systemctl start dovecot.service
 }
 
 ###############################################################################
@@ -1797,10 +1864,20 @@ if [ -x /usr/sbin/amavisd ]; then
     if [ "$USE_AMAVIS" = "yes" ]; then
         gen_amavisd_cf
 	mv /tmp/amavisd.conf /etc/amavisd.conf
-	[ $(systemctl is-enabled amavis.service) = "disabled" ] && systemctl enable amavis.service
-	[ $(systemctl is-active amavis.service) = "inactive" ] && systemctl start amavis.service
+	[ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
+	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
+	sleep 5
+	[ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service
+	[ "$(systemctl is-active clamd.service)" != "active" ] && systemctl start clamd.service
+	sleep 5
+	[ "$(systemctl is-enabled amavis.service)" != "enabled" ] && systemctl enable amavis.service
+	sa-update
+	[ "$(systemctl is-active amavis.service)" != "active" ] && systemctl start amavis.service
     fi
 fi
+
+# call gen_opendkim if required
+[ "$POSTFIX_WITH_DKIM" = "yes" -a "${POSTFIX_DKIM_TYPE,,}" = "opendkim" ] && gen_opendkim
 
 # call mkchroot. The conditions what to do take place in this function.
 mkchroot

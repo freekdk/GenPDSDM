@@ -521,11 +521,11 @@ POSTFIX_TLS_CERTFILE="certs/postfixcert.pem"
 POSTFIX_TLS_KEYFILE="certs/postfixkey.pem"
 
 ## Type:        string
-## Default:     "/etc/dovecot/ssl"
+## Default:     "/etc/ssl/private"
 ## Config:      dovecot
 #
 # path to the directory where the certificates (default: certs/dovecotcert.pem)
-# and CA certificates (default: /etc/postfixssl//cacerts) can be found
+# and CA certificates (default: /etc/postfix/ssl/cacerts) can be found
 #
 # This folder will be synced via 'config.postfix' when running 'chrooted'?
 # 
