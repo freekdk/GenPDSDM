@@ -336,7 +336,7 @@ if [ ${#POSTFIX_RELAYHOST} -ne 0 ] ; then
     else
 	echo "Currently outgoing email ${bold}must${offbold} be encrypted"
     fi
-    echo "Is this OK?"
+    echo "Is this OK? Alternatives are: No, If possible, or Always."
     yesorno
     if [ $? -ne 0 ] ; then
 	echo "Three posibilities: No, If possible, or Always. If possible is recommended."
@@ -440,7 +440,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	fi
     else 
 	echo "Currently you allow incoming email on port 25 with encryption."
-	echo "Is this OK? Otherwise encryption on this port wil be removed."
+	echo "Is this OK? Otherwise encryption on this port will be removed."
 	yesorno
 	if [ $? -ne 0 ] ; then
 	    setpar POSTFIX_SMTP_TLS_SERVER no
