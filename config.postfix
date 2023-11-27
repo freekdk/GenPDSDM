@@ -95,7 +95,7 @@ mkchroot(){
     fi
     cd "$PF_CHROOT"
 
-    if [ "$POSTFIX_WITH_DKIM" = "yes" -a "$POSTFIX_DKIM_TYPE,," = "opendkim" ] ; then
+    if [ "$USE_DKIM" = "openDKIM" ] ; then
 	if [ "${POSTFIX_DKIM_CONN,,}" == 'socket' ] ; then
             if [ -f /etc/opendkim/opendkim.conf ]; then
 		DKIM_SOCKET=$(awk -F':' '/^Socket(\s|\t)+local/ {print $2}' /etc/opendkim/opendkim.conf)
@@ -185,7 +185,7 @@ mkchroot(){
           cpifnewer /etc/openldap/ldap.conf etc/openldap
       fi
 
-      if [ "${POSTFIX_WITH_DKIM,,}" != "yes" -o "${POSTFIX_DKIM_TYPE,,}" = "amavis_dkim" } ]; then
+      if [ "${USE_DKIM}" = "no" -o "${USE_DKIM}" = "yes" } ]; then
         if [[ -n "${CHR_DKIM_SOCKET_DIR}" ]]; then
           if grep "${PF_CHROOT}"/${CHR_DKIM_SOCKET_DIR} /proc/mounts &> /dev/null; then
             umount "${PF_CHROOT}"/${CHR_DKIM_SOCKET_DIR}
@@ -194,7 +194,7 @@ mkchroot(){
       fi
 
       if [ "${POSTFIX_DKIM_CONN,,}" == "socket" -a \
-          "${POSTFIX_WITH_DKIM,,}" != "no" -a "${POSTFIX_DKIM_TYPE,,}" = "opendkim" ]; then
+          "${USE_DKIM,,}" = "openDKIM" ]; then
           if [[ ! -d ${CHR_DKIM_SOCKET_DIR} ]]; then
             mkdir -p ${CHR_DKIM_SOCKET_DIR}
           fi
@@ -316,10 +316,7 @@ gen_main_cf(){
     TMPDIR=$(mktemp -d /tmp/config.postfix.XXXXXX) || exit 1
     PCONF="/usr/sbin/postconf -c $TMPDIR"
 
-    # needed when for WITH_DKIM
-    export POSTFIX_WITH_DKIM
-    # needed for AMAVIS_DKIM in POSTFIX_DKIM_TYPE
-    export POSTFIX_DKIM_TYPE
+    export USE_DKIM
     # needed when for WITH_LDAP
     export POSTFIX_WITH_LDAP
     # needed when for WITH_MYSQL
@@ -822,15 +819,10 @@ using \"off\" instead!"
 my $mncf = "$ENV{MCF_DIR}/main.cf";
 my $line;
 
-my $with_dkim =
-    defined $ENV{POSTFIX_WITH_DKIM} ? $ENV{POSTFIX_WITH_DKIM} : "no";
+my $use_dkim =
+    defined $ENV{USE_DKIM} ? $ENV{USE_DKIM} : "no";
 
-$with_dkim = lc($with_dkim);
-
-my $dkim_type =
-    defined $ENV{POSTFIX_DKIM_TYPE} ? $ENV{POSTFIX_DKIM_TYPE} : "no";
-
-$dkim_type = lc($dkim_type);
+$use_dkim = lc($use_dkim);
 
 my $with_ldap =
     defined $ENV{POSTFIX_WITH_LDAP} ? $ENV{POSTFIX_WITH_LDAP} : "no";
@@ -859,25 +851,25 @@ while( <MNCF> ) {
     chomp;
 
    if( /^\#?(smtpd_milters\s=.*)/ ) {
-     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
+     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = "#".$1;
      }
    } elsif( /^\#?(non_smtpd_milters\s=.*)/ ) {
-     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
+     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = "#".$1;
      }
    } elsif( /^\#?(milter_default_action\s=.*)/ ) {
-     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
+     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = $1;
      }
    } elsif( /^\#?(milter_protocol\s=.*)/ ) {
-     if ($with_dkim ne "yes" or $dkim_type ne "opendkim") {
+     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
        $line = "#".$1;
      } else {
        $line = $1;
@@ -1001,16 +993,14 @@ while( <MNCF> ) {
 gen_amavisd_cf(){
     [ ! -f /etc/amavisd.conf.back ] && cp /etc/amavisd.conf /etc/amavisd.conf.back
     export FQHOSTNAME
-    export POSTFIX_WITH_DKIM
-    export POSTFIX_DKIM_TYPE
+    export USE_DKIM
     if [ -n "${FQHOSTNAME}" ]; then
 	perl -e 'use strict;
 open(ACF,"</etc/amavisd.conf") || die "unable to open /etc/amavisd.conf: $!";
 open(OUT,">/tmp/amavisd.conf");
 
 my $myhostname   = $ENV{FQHOSTNAME};
-my $postfix_with_dkim = $ENV{POSTFIX_WITH_DKIM};
-my $dkim_type = $ENV{POSTFIX_DKIM_TYPE};
+my $use_dkim = $ENV{USE_DKIM};
 my ($h,$mydomain)= split /\./, $myhostname, 2;
 my $line;
 while( <ACF> ) {
@@ -1023,7 +1013,7 @@ while( <ACF> ) {
         	$line = "\$mydomain = \"$mydomain\";".$1;
 	} elsif ( /^#?\s*(\$inet_socket_port = 10024.*)/ )
 	{
-		if ( $postfix_with_dkim eq "yes" )
+		if ( $use_dkim ne "no" )
 		{
 			$line = "# ".$1 ;
 		} else
@@ -1032,7 +1022,7 @@ while( <ACF> ) {
 		}
 	} elsif ( /^#?\s*(\$inet_socket_port = \[10024,10026\];.*)/ )
 	{
-		if ( $postfix_with_dkim eq "yes" )
+		if ( $use_dkim ne "no" )
 		{
 			$line = $1;
 		} else
@@ -1041,7 +1031,7 @@ while( <ACF> ) {
 		}
 	} elsif ( /^(  forward_method => .smtp:\[127.0.0.1\]:)(\d{5})(.*)/ )
 	{
-		if ( $postfix_with_dkim eq "yes" and $dkim_type eq "AMAVIS_DKIM" )
+		if ( $use_dkim eq "yes" )
 		{
 			$line = $1."10025".$3;
 		} else
@@ -1050,7 +1040,7 @@ while( <ACF> ) {
 		}
 	} elsif ( /^(\$enable_dkim_verification = )\d(;\s+#\s+)[a-z]+(\s+DKIM.*)/ )
 	{
-		if ( $postfix_with_dkim eq "yes" and $dkim_type eq "AMAVIS_DKIM" )
+		if ( $use_dkim eq "yes" )
 		{
 			$line = $1."1".$2."enable".$3;
 		} else
@@ -1059,7 +1049,7 @@ while( <ACF> ) {
 		}
 	} elsif ( /^(\$enable_dkim_signing = )\d(;\s+#\s+)[a-z]+(\s+DKIM.*)/ )
 	{
-		if ( $postfix_with_dkim eq "yes" and $dkim_type eq "AMAVIS_DKIM" )
+		if ( $use_dkim eq "yes" )
 		{
 			$line = $1."1".$2."enable".$3;
 		} else
@@ -1078,7 +1068,7 @@ close(OUT);
 	host=${FQHOSTNAME%%.*}
 	domain=${FQHOSTNAME#*.}
 	mkdir -p /etc/dkim
-	if [ "${POSTFIX_DKIM_TYPE,,}" = "amavis_dkim" ] ; then
+	if [ "${USE_DKIM}" = "yes" ] ; then
 	    if [ $(ls /etc/dkim/${domain}.dkim*.pem 2>/dev/null | wc -l) -eq 0 ] ; then
 		date=$(date --date=now +%Y%m%d)
 		amavisd -c /tmp/amavisd.conf genrsa /etc/dkim/${domain}.dkim${date}.pem 2048
@@ -1167,8 +1157,7 @@ gen_master_cf(){
     export POSTFIX_CHROOT
     export POSTFIX_NULLCLIENT
     export USE_AMAVIS
-    export POSTFIX_WITH_DKIM
-    export POSTFIX_DKIM_TYPE
+    export USE_DKIM
     export POSTFIX_DKIM_CONN
     export POSTFIX_SMTP_AUTH_SERVER
     export POSTFIX_SMTP_TLS_SERVER
@@ -1191,10 +1180,8 @@ my $chroot =
     defined $ENV{POSTFIX_CHROOT} ? $ENV{POSTFIX_CHROOT} : "yes";
 my $use_amavis =
     defined $ENV{USE_AMAVIS} ? $ENV{USE_AMAVIS} : "no";
-my $withdkim = 
-    defined $ENV{POSTFIX_WITH_DKIM} ? $ENV{POSTFIX_WITH_DKIM} : "no";
-my $dkim = 
-    defined $ENV{POSTFIX_DKIM_TYPE} ? $ENV{POSTFIX_DKIM_TYPE} : "openDKIM";
+my $usedkim = 
+    defined $ENV{USE_DKIM} ? $ENV{USE_DKIM} : "no";
 my $dkimconn = 
     defined $ENV{POSTFIX_DKIM_CONN} ? $ENV{POSTFIX_DKIM_CONN} : "socket";
 my $tlsserver = 
@@ -1216,8 +1203,7 @@ $laptop = lc($laptop);
 $chroot = lc($chroot);
 $nullclient = lc($nullclient);
 $use_amavis = lc($use_amavis);
-$withdkim = lc($withdkim);
-$dkim = lc($dkim);
+$usedkim = lc($usedkim);
 $dkimconn = lc($dkimconn);
 $tlsserver = lc($tlsserver);
 $tlsclient = lc($tlsclient);
@@ -1251,9 +1237,9 @@ while( <MCF> ) {
 	    $line = "#".$1;
 	}
     } elsif ( /^\#?(\s*-o smtpd_milters=inet:127\.0\.0\.1:)/ ) {
-	if ( $withdkim eq "yes" and $dkim eq "opendkim" ) {
+	if ( $usedkim eq "opendkim" ) {
 	    $line = $1."8891";
-	} elsif ( $withdkim eq "yes" and $dkim eq "opendkim" and $dmarcchecks eq "yes" ) {
+	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
 	    $line = $1."8891,inet:127.0.0.1:8893";
 	} elsif ( $dmarcchecks eq "yes" ) {
 	    $line = $1."8893";
@@ -1261,9 +1247,9 @@ while( <MCF> ) {
 	    $line = "#".$1."8891";
 	}
     } elsif ( /^\#?(\s*-o non_smtpd_milters=inet:127\.0\.0\.1:)/ ) {
-	if ( $withdkim eq "yes" and $dkim eq "opendkim" ) {
+	if ( $usedkim eq "opendkim" ) {
 	    $line = $1."8891";
-	} elsif ( $withdkim eq "yes" and $dkim eq "opendkim" and $dmarcchecks eq "yes" ) {
+	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
 	    $line = $1."8891,inet:127.0.0.1:8893";
 	} elsif ( $dmarcchecks eq "yes" ) {
 	    $line = $1."8893";
@@ -1337,7 +1323,7 @@ while( <MCF> ) {
 	     $line = "   ".$1;
 	}
     } elsif ( /^\#?\s{3}(-o\s+content_filter=smtp:.*:)\d{5}/ ) {
-	if ( $tlsserver eq "yes" and $withdkim eq "yes" ) {
+	if ( $tlsserver eq "yes" and $usedkim ne "no" ) {
 	    $line = "   ".$1."10026";
 	} else {
 	    $line = "#   ".$1."10024";
@@ -1379,7 +1365,7 @@ while( <MCF> ) {
              $line = "   ".$1;
         }
     } elsif ( /^\#?\s{3}(-o\smilter_macro_daemon_name=ORIGINATING)/ ) {
-        if ( $tlsserver eq "yes" and $withdkim eq "yes" ) {
+        if ( $tlsserver eq "yes" and $usedkim ne "no" ) {
             $line = "   ".$1;
         } else {
             $line = "#   ".$1;
@@ -1420,7 +1406,7 @@ while( <MCF> ) {
 	}
     } elsif( /^\#?\s{4}(-o\s+content_filter=smtp:.*:)\d{5}/ ) {
 	if ( $sslserver eq "yes" && $use_amavis eq "yes" ) {
-	    if ( $withdkim eq "yes" && $dkim eq "amavis_dkim" ) {
+	    if ( $usedkim eq "yes" ) {
 		    $line = "    ".$1."10026";
 	    } else {
 		$line = "    ".$1."10024";
@@ -1447,7 +1433,7 @@ while( <MCF> ) {
 	     $line = "    ".$1;
 	}
     } elsif ( /^\#?\s{4}(-o\smilter_macro_daemon_name=ORIGINATING)/ ) {
-	if ( $sslserver eq "yes" and $withdkim eq "yes" and $dkim eq "amavis_dkim" ) {
+	if ( $sslserver eq "yes" and $usedkim eq "yes" ) {
 	    $line = "    ".$1;
 	} else {
 	    $line = "#    ".$1;
@@ -1598,13 +1584,13 @@ while( <MCF> ) {
     ## 127.0.0.1:10027
     } elsif( /^\#?\s*(127.0.0.1:10027\s+inet.*)/ ) {
 	if( defined $normalize->{$1} ) { next; } else { $normalize->{$1} = 1; }
-	if ( $withdkim ne "yes" or $dkim ne "opendkim" ) {
+	if ( $usedkim ne "yes" or $usedkim ne "opendkim" ) {
 	    $line = "#".$1;
 	} else {
 	    $line = $1;
 	}
     } elsif ( /^\#?\s{5}(-o\s)(.*)/ ) {
-	if ( $withdkim ne "yes" or $dkim ne "opendkim" ) {
+	if ( $usedkim ne "yes" or $usedkim ne "opendkim" ) {
 	    $line = "#     ".$1.$2;
 	} else {
 	    $line = "     ".$1.$2;
@@ -1877,7 +1863,7 @@ if [ -x /usr/sbin/amavisd ]; then
 fi
 
 # call gen_opendkim if required
-[ "$POSTFIX_WITH_DKIM" = "yes" -a "${POSTFIX_DKIM_TYPE,,}" = "opendkim" ] && gen_opendkim
+[ "$USE_DKIM" = "openDKIM" ] && gen_opendkim
 
 # call mkchroot. The conditions what to do take place in this function.
 mkchroot

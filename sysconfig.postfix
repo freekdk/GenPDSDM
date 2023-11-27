@@ -121,17 +121,6 @@ POSTFIX_CHROOT="no"
 #
 POSTFIX_UPDATE_CHROOT_JAIL="no"
 
-## Type:        yesno
-## Default:     no
-## Config:      postfix
-#
-# Set this to yes, if /usr/sbin/config.postfix should activate DKIM stuff in main.cf
-# and having 'opendkim.sock' inside chroot jail
-# Note: When POSTFIX_CHROOT="yes" then 'opendkim.sock' will be available
-#       in postfix CHROOT
-#
-POSTFIX_WITH_DKIM="no"
-
 ## Type:       yesno
 ## Default:    no
 ## Config:     postfix
@@ -160,15 +149,6 @@ POSTFIX_DMARC_CHECKS="no"
 #       on localhost
 #
 POSTFIX_DKIM_CONN="socket"
-
-## Type:       string
-## Default:    "openDKIM"
-## Config:     Postfix
-#
-# Which DKIM will be used (openDKIM or AMAVIS_DKIM)
-# NOTE: Will only be used when AMaVis and WITH_DKIM is enabled
-#
-POSTFIX_DKIM_TYPE="openDKIM"
 
 ## Type:        yesno
 ## Default:     no

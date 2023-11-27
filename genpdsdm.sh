@@ -29,55 +29,105 @@
 # Version 1.0 First release
 # Version 1.0.1 Restrict disable_vrfy_command=yes to after ORIGINATING in submission
 # Version 1.0.2 Milter to port 8893 is for opendkim (currenly not supported) removed
+# Version 1.1.0 Improved generation of certificates (no questions asked anymore)
+# Version 1.2.0 Added option to use dialog in asking questions and showing progress
 #
 # Version designed on openSUSE Leap 15.5 on Raspberry Pi 4B
 # This version should also work in other environments of openSUSE
+# Tested also on Tumbleweed and x86_64
 #
 # ---------------------------------------------------------------------
 #
 # this script should be run as user root
 #
-id | tr "a-z" "A-Z" | egrep -q '^UID=0'
-[ $? -ne 0 ] && echo "This script should be executed by root or sudo $0" && exit 1
+debug=1
+[ -e /etc/genpdsdm/genpdsdm.log ] && rm /etc/genpdsdm/genpdsdm.log
+comm="$0"
+dialog1='dialog --title "GenPDSDM" --begin 5 10'
+exitmsg() {
+    if [ $DIAL -eq 0 ] ; then
+	local n=$((${#1}/50))
+	$dialog1 --colors --msgbox "\Z1\Zb${1}\Zr" $(($n+5)) 75
+	clear
+    else
+	echo -e "$1"
+    fi
+    exit 1
+}
+dlog() {
+    [ $debug -eq 1 ] && echo "$1" >> /etc/genpdsdm/genpdsdm.log
+}
 #
+# /etc/genpdsdm/genpdsdm.log keeps track of what has been done during running the script
 # /etc/genpdsdm/genpdsdm.history keeps the history of already executed parts of this script
 #
 # initialize the history file of the script or read the history to skip what has been done
 #
 mkdir -p /etc/genpdsdm
 [ -e /etc/genpdsdm/genpdsdm.history ] && source /etc/genpdsdm/genpdsdm.history
-NEW=1 ; OLD=1
+# initialize NEW, OLD and DIAL as not activated
+NEW=1 ; OLD=1 ; DIAL=1
+help="\nUse genpdsdm [OPTIONS]\n\n\
+Generates configurations for Postfix, Dovecot, SPL, DKIM and DMARC from\n\
+scratch. When invoked for the first time all necessary packets will be\n\
+installed and all files, that will be changed, are saved to be able to\n\
+start all over again, even much later in the livetime of the system.\n\
+When starting the script without --old or -new, and the script has\n\
+been succesfully completed before, the configuration will not change,\n\
+and only processes will be restarted.\n\n\
+OPTIONS\n\
+ --dial     use dialog screens to ask questions and show progress\n\
+ --old      configure all over again using previously saved parameters\n\
+ --new      configure all over again using newly configured parameters\n\
+ --help     print this help text and exit\n\n"
 if [ "$1" != "" ] ; then
     for par in $@
     do
 	case $par in
-	    "--new" ) NEW=0 ;;
-            "--old" ) OLD=0 ;;
-	    *       ) echo "Invoke this script with $0 [--new|--old] , try again" && exit 1 ;;
+	    --new   ) NEW=0 ;;
+            --old   ) OLD=0 ;;
+	    --help  ) [ $DIAL -ne 0 ] && echo -e "$help" || $dialog1 --msgbox "$help" 20 0 ;;
+	    --dial* ) DIAL=0 ;;
+	    *       ) echo "Invoke this script with $0 [--dial[og]] [--new|--old] , try again" && exit 1 ;;
         esac
 	[ $NEW -eq 0 -a $OLD -eq 0 ] && echo "Parameters --new and --old are mutually exclusief" && exit 1
     done
 fi
+id | tr "a-z" "A-Z" | egrep -q '^UID=0'
+if [ $? -ne 0 ] ; then 
+    exitmsg "This script should be executed by root or sudo $0"
+fi
 #
 # Install the required packages
 #
+dlog "== Starting Installation =="
 if [ -z "${INSTALLATION_done}" ] ; then
     # Check if this a clean system
     if [ -e /etc/zypp/repos.d/postfix-policyd-spf-perl.repo ] ; then
-        echo "This is not a clean installed system with only a few required additions"
-        echo "Please start with a fresh installation on the boot device"
-        exit 1
+        exitmsg "This is not a clean installed system with only a few required additions\n\
+Please start with a fresh installation on the boot device. Removing,\n\
+first, the 5 involved packages and the non-standard repositories is\n\
+also possible."
     fi
-    zypper up
-    zypper in --no-recommends postfix telnet dovecot amavisd-new spamassassin arc arj\
-     lzop clzip rzip melt cabextract lz4 p7zip-full rzsz tnef zoo clamav bind-utils
+    grep -q "Tumbleweed" /etc/os-release && os="openSUSE_Tumbleweed"
+    grep -q "Leap 15.5" /etc/os-release && os="15.5"
+    [ "$os" = "openSUSE_Tumbleweed" ] && zypper dup -y
+    [ "$os" = "15.5" ] && zypper up -y
+    [ "$os" = "" ] && exitmsg "Only openSUSE Tumbleweed and Leap 15.5 are supported"
+    zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
+	lz4 p7zip-full rzsz clamav bind-utils
+    zypper in  -y --recommends amavisd-new
     if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
-	zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/15.4/ postfix-policyd-spf-perl
-	zypper in postfix-policyd-spf-perl
+	zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$os/ postfix-policyd-spf-perl
+	zypper in -y postfix-policyd-spf-perl
+	# disable repository for not having conflicts during updates
+	zypper mr -d postfix-policyd-spf-perl
     fi
     if [ ! -e /etc/zypp/repos.d/mail-server ] ; then
-	zypper ar https://download.opensuse.org/repositories/server:/mail/15.5/ server-mail
-	zypper in opendmarc
+	zypper ar https://download.opensuse.org/repositories/server:/mail/$os/ server-mail
+	zypper in -y opendmarc
+	# disable repository for not having conflicts during updates
+        zypper mr -d server-mail
         mkdir -p /etc/opendmarc
 	if [ ! -e /etc/opendmarc/ignore.hosts ] ; then
 	    touch /etc/opendmarc/ignore.hosts
@@ -100,12 +150,12 @@ if [ -z "${INSTALLATION_done}" ] ; then
     cp -a /etc/dovecot/conf.d/10-master.conf /etc/genpdsdm/10-master.conf.org
     cp -a /etc/dovecot/conf.d/10-mail.conf /etc/genpdsdm/10-mail.conf.org
     cp -a /usr/share/dovecot/dovecot-openssl.cnf /etc/genpdsdm/dovecot-openssl.cnf.org
-    cp -a /usr/share/dovecot/mkcert.sh /etc/genpdsdm/dovecot-mkcert.sh
     cp -a /etc/amavisd.conf /etc/genpdsdm/amavisd.conf.org
     cp -a /etc/opendmarc.conf /etc/genpdsdm/opendmarc.conf.org
     cp -a /etc/opendmarc/ignore.hosts /etc/genpdsdm/opendmarc-ignore.hosts.org
     echo "INSTALLATION_done=yes" >> /etc/genpdsdm/genpdsdm.history
 fi
+dlog "== End of installation"
 #
 # Restore all changed files if OLD or NEW is 0
 #
@@ -119,13 +169,11 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
     [ -e /etc/genpdsdm/10-master.conf.org ] && cp -a /etc/genpdsdm/10-master.conf.org /etc/dovecot/conf.d/10-master.conf
     [ -e /etc/genpdsdm/10-mail.conf.org ] && cp -a /etc/genpdsdm/10-mail.conf.org /etc/dovecot/conf.d/10-mail.conf
     [ -e /etc/genpdsdm/dovecot-openssl.cnf.org ] && cp -a /etc/genpdsdm/dovecot-openssl.cnf.org /usr/share/dovecot/dovecot-openssl.cnf
-    [ -e /etc/genpdsdm/dovecot-mkcert.sh ] && cp -a /etc/genpdsdm/dovecot-mkcert.sh /usr/share/dovecot/mkcert.sh
     [ -e /etc/genpdsdm/amavisd.conf.org ] && cp -a /etc/genpdsdm/amavisd.conf.org /etc/amavisd.conf
     [ -e /etc/postfix/sasl_passwd ] && rm /etc/postfix/sasl_passwd
-    [ -e /etc/genpdsdm/dkimtxtrecoed.txt ] && rm /etc/genpdsdm/dkimtxtrecord.txt
+    [ -e /etc/genpdsdm/dkimtxtrecord.txt ] && rm /etc/genpdsdm/dkimtxtrecord.txt
     [ -e /etc/genpdsdm/opendmarc.conf.org ] && cp -a /etc/genpdsdm/opendmarc.conf.org /etc/opendmarc.conf
     [ -e /etc/genpdsdm/opendmarc-ignore.hosts.org ] && cp -a /etc/genpdsdm/opendmarc-ignore.hosts.org /etc/opendmarc/ignore.hosts
-    [ -d ./demoCA ] && rm -rf ./demoCA
     unset MAINCF_done
     unset MASTERCF_done
     unset POSTFIXCERTIFICATES_done
@@ -141,60 +189,123 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
     	unset RELAYHOST
     	unset USERNAME
     	unset PASSWORD
-    	unset FULLNAME
+    	unset ENAME
     	unset LUSERNAME
     	unset NAME
     fi
+    dlog "== End of restoring changed files =="
 fi
 #
 # Find the host name and the domain name of the system
 #
-echo "Trying to find host name and domain name..."
-HOSTNAME=$(cat /etc/hostname)
-[ ! -z $HOSTNAME ] && grep $HOSTNAME /etc/hosts > /tmp/hosts
+dlog "== Section to find host and domain name  =="
+message="\
+===============================================\n\
+= Trying to find host name and domain name... =\n\
+==============================================="
+[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
+[ $DIAL -eq 0 ] && sleep 3
+HOSTNAME="$(cat /etc/hostname)"
+if [ ! -z "$HOSTNAME" ] ; then
+    grep "$HOSTNAME" /etc/hosts > /tmp/hosts
+    DOMAINNAME=$(cat /tmp/hosts | tr "\t" " ")
+    DOMAINNAME=${DOMAINNAME% *}
+    DOMAINNAME=${DOMAINNAME#* }
+    DOMAINNAME=${DOMAINNAME#*.}
+else
+    DOMAINNAME=""
+fi
+dlog "Domain name is \"$DOMAINNAME\""
 count=0
 [ -e /tmp/hosts ] && count=$(cat /tmp/hosts | wc -l) && rm /tmp/hosts
+dlog "count=$count, domain name=$DOMAINNAME, host name=$HOSTNAME"
 grep -q '\.' /etc/hostname
 if [ $? -eq 0 -o -z "$HOSTNAME" -o $count -eq 0 ] ; then
-    ipa=$(hostname -I)
-    echo ""
-    echo Questions about host name and domain name
-    echo ""
-    echo "The host name can be any name and consist of letters, digits, a \"_\" and/or \"-\""
-    echo "This name need not be smtp or mail or imap, which will be used elsewhere in the server"
-    echo -n "Enter the name of the system: "
-    read HOSTNAME
-    echo "An example of the domain name is: example.com; should at least contain one dot"
-    echo "The script requires the existance of a DNS for this domain with A MX records for the domain"
-    echo "The MX record should point to smtp.<domain_name> or mail.<domain_name>, which both should have"
-    echo "an A record. Also an imap.<domain_name> A record should exist, all with the same IP address"
-    echo -n "Enter the domain name: "
-    read DOMAINNAME
-    echo "Checking for existing records in the DNS"
+    # HOSTNAME not known or contains a dot
+    while true ; do
+	ipa=$(hostname -I)
+	if [ $DIAL -ne 0 ] ; then
+	    echo ""
+	    echo Questions about host name and domain name
+	    echo ""
+	    echo "The host name can be any name and consist of letters, digits, a \"_\" and/or \"-\""
+	    echo "This name need not be smtp or mail or imap, which will be used elsewhere in the server"
+	    echo -n "Enter the name of the system: "
+	    read HOSTNAME
+	    echo ""
+	    echo "An example of the domain name is: example.com; should at least contain one dot"
+	    echo "The script requires the existance of a DNS for this domain with A MX records for the domain"
+	    echo "The MX record should point to smtp.<domain_name> or mail.<domain_name>, which both should have"
+	    echo "an A record. Also an imap.<domain_name> A record should exist, all with the same IP address"
+	    echo -n "Enter the domain name: "
+	    read DOMAINNAME
+	else
+            $dialog1 --form "\
+Questions about host name and domain name\n\
+The host name can be any name and consist of letters, digits, a \"_\"\n\
+and/or \"-\". This name need not be smtp or mail or imap, which will be\n\
+used elsewhere in the server. An example of the domain name is:\n\
+example.com; should at least contain one dot. The script requires the\n\
+existance of a DNS for this domain with a MX records for the domain.\n\
+The MX record should point to smtp.<domain_name> or mail.<domain_name>,\n\
+which both should have an A record. Also an imap.<domain_name> A record\n\
+should exist, all with the same IP address." 15 0 2 \
+"Hostname :    " 1 1 "" 1 18 10 10 \
+"Domain name : " 2 1 "" 2 18 25 25 2> /tmp/u.tmp
+            [ $? -ne 0 ] && exitmsg "Script canceled by user or other error"
+            HOSTNAME="$(head -1 /tmp/u.tmp)"
+            DOMAINNAME=$(tail -1 /tmp/u.tmp)
+            rm /tmp/u.tmp
+	fi
+	if [ -z "$HOSTNAME" -o -z "$DOMAINNAME" ] ; then
+	    message="Hostname and Domainname must not be empty!"
+            [ $DIAL -ne 0 ] && echo "$message" || $dialog1 --msgbox "$message" 6 50 
+	else
+	    break
+	fi
+    done
+    # further checkes on names
+    message="\n\
+============================================\n\
+= Checking for existing records in the DNS =\n\
+============================================"
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    [ $DIAL -eq 0 ] && sleep 5
+    message="Errors found by checking:"
     n=0
     nslookup -query=A $DOMAINNAME > /tmp/Adomain
-    [ $? -ne 0 ] && echo "$DOMAINNAME does not have an A record" && n=$(($n+1))
+    [ $? -ne 0 ] && message="$message\n\n$DOMAINNAME does not have an A record." && n=$(($n+1))
     nslookup -query=MX $DOMAINNAME > /tmp/MXdomain
-    [ $? -ne 0 ] && echo "$DOMAINNAME does not have an MX record" && n=$(($n+1))
+    [ $? -ne 0 ] && message="$message\n\n$DOMAINNAME does not have an MX record." && n=$(($n+1))
     nslookup -query=A smtp.$DOMAINNAME > /tmp/smtpdomain
-    [ $? -ne 0 ] && echo "smtp.DOMAINNAME does not have an A or CNAME record" && n=$(($n+1))
+    [ $? -ne 0 ] && message="$message\n\nsmtp.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
     nslookup -query=A mail.$DOMAINNAME > /tmp/maildomain
-    [ $? -ne 0 ] && echo "mail.$DOMAINNAME does not have an A or CNAME record" && n=$(($n+1))
+    [ $? -ne 0 ] && message="$message\n\nmail.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
     nslookup -query=A imap.$DOMAINNAME > /tmp/imapdomain
-    [ $? -ne 0 ] && echo "imap.$DOMAINNAME does not have an A or CNAME record" && n=$(($n+1))
-    [ $n -ne 0 ] && echo "Please provide the required records in the DNS for domain $DOMAINNAME and start the script again"\
-	&& exit 1
+    [ $? -ne 0 ] && message="$message\n\nimap.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
+    if [ $n -ne 0 ] ; then
+	message="$message\n\n\
+Please provide the required records in the DNS for domain\n\
+\"$DOMAINNAME\"\n and start the script again."
+	[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" $(($n*2+6)) 0
+	exit 1
+    fi
     gipaddress=$(grep 'Address:' /tmp/Adomain | tail -1)
     gipaddress=${gipaddress#* }
     sub[0]="smtp" ; sub[1]="mail" ; sub[3]="imap" ; i=0 ; n=0
     for f in /tmp/smtpdomain /tmp/maildomain /tmp/imapdomain ; do
 	grep -q "$gipaddress" $f
-        [ $? -ne 0 ] && echo "Global IP address not in record for ${sub[$i]}.$DOMAINNAME" && n=$(($n+1))
+        [ $? -ne 0 ] && message="Global IP address not in record for ${sub[$i]}.$DOMAINNAME" && n=$(($n+1))
 	rm $f
 	i=$(($i+1))
     done
     rm /tmp/Adomain /tmp/MXdomain
-    [ $n -ne 0 ] && echo "Apparently there is something wrong with the data in the DNS. Please fix it" && exit 1
+    if [ $n -ne 0 ] ; then
+	message="$message\n\nApparently there is something wrong with the data in the DNS.\n\n\
+Please fix it!"
+	[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 7 0
+	exit 1
+    fi
     #
     # Check if there is already an entry in /etc/hosts for the server, if so remove it and enter such an entry.
     # The entry should be <host_ip_address> <host_name>.<domain_name> <hostname>
@@ -204,42 +315,52 @@ if [ $? -eq 0 -o -z "$HOSTNAME" -o $count -eq 0 ] ; then
     grep -q $hostip /etc/hosts
     [ $? -eq 0 ] && sed -i "/$hostip/d" /etc/hosts
     #
-    # Insert the entry in /etc/hosts after line with 127.0.0.1
+    # Insert the entry in /etc/hosts after line with 127.0.0.1[[:blank:]]+localhost\.localdomain
     #
-    sed -i "/127.0.0.1/a $hostip	$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
-    count=1
+    sed -i -E "/^127.0.0.1[[:blank:]]+localhost\.localdomain/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
+    dlog "IP address and hostname entered in /etc/hosts"
     echo $HOSTNAME > /etc/hostname
     nslookup -query=AAAA smtp.$DOMAINNAME > /tmp/AAAAdomain
     tail -1 /tmp/AAAAdomain | grep -q Address
-    [ $? -eq 0 ] && echo "WARNING: This script supports only a server without an IPv6 address for smtp.$DOMAINNAME"\
-      && echo "Contact the author if you have this requirement"
+    if [ $? -eq 0 ] ; then
+	message="WARNING: This script supports only a server without an IPv6 address for smtp.$DOMAINNAME\n\n\
+Contact the author if you have this requirement."
+	[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --msgbox "$message" 5 0
+    fi
     rm /tmp/AAAAdomain
-    echo "The system will reboot now and please run this script again"
-    reboot
+    # count must be 1 when HOSTNAME and DOMAINNAME are set
+    count=1
+else
+    message="\
+Found host name is : ${HOSTNAME}\n\
+Domain name is     : ${DOMAINNAME}"
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 4 60
+    [ $DIAL -eq 0 ] && sleep 5
 fi
-if [ $count -ne 1 ] ; then    
-    echo "There is more than 1 line in /etc/hosts with the text '$HOSTNAME'"
-    echo "You should not have changed anything in /etc/hosts before running this script"
-    exit 1
-fi
-line=$(grep $HOSTNAME /etc/hosts)
-DOMAINNAME=${line#*$HOSTNAME.}
-DOMAINNAME=${DOMAINNAME% *}
-if [ -z "${DOMAINNAME_done}" ] ; then
-    echo "The domain name \"$DOMAINNAME\" will be used throughout this script"
-    echo -n "Is this OK enter y, Y or nothing and press Enter: "
-    read answ
+dlog "== End of finding domain name \"$DOMAINNAME\" and host name \"$HOSTNAME\""
+[ $count -ne 1 ] && exitmsg "There is more than 1 line in /etc/hosts with the text \"$HOSTNAME\"\n\
+You should not have changed anything in /etc/hosts before running this script."
+dlog "== Check if domain name is OK =="
+if [ -z "$DOMAINNAME_done" ] ; then
+    message="\nThe domain name \"$DOMAINNAME\" will be used throughout this script\n\
+Is this OK?"
+    if [ $DIAL -ne 0 ] ; then
+	echo -n -e "${message}\n\nEnter y or Y for OK, anything else is NO and the script will terminate : "
+	read answ
+    else
+	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 6 0
+	[ $? -eq 0 ] && answ="y"
+    fi
     case $answ in
-        "y" | "Y" ) ;;
-        *) 
-	    if [ ! -z "$answ" ] ; then
-		echo "The host name in /etc/hostname will be emptied, so when invoke the scrip again"
-		echo "You will be asked again for the host name and the domain name"
-		echo "The script will exit; you need to invoke the script again"
-                echo "" > /etc/hostname
-		exit 1
-	    fi
-	    ;;
+	"y" | "Y" ) ;;
+	*         ) 
+		echo "" > /etc/hostname
+		grep DOMAINNAME_done /etc/genpdsdm/genpdsdm.history
+	       	[ $? -eq 0 ] && sed -i "/^DOMAINNAME_done/ d" /etc/genpdsdm/genpdsdm.history
+		exitmsg "The host name in /etc/hostname will be cleared,\n\
+so when you invoke the script again, you will be asked again\n\
+for the host name and the domain name."
+		  ;;
     esac
     echo "DOMAINNAME_done=yes" >> /etc/genpdsdm/genpdsdm.history
 fi
@@ -247,9 +368,12 @@ fi
 # Read other needed parameters
 #
 if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_read" ] ; then
-    echo "=============================="
-    echo "Establishing needed parameters"
-    echo "=============================="
+    message="\
+==================================\n\
+= Establishing needed parameters =\n\
+=================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    [ $DIAL -eq 0 ] && sleep 5
     #
     # Restore possibly earlier changed files
     #
@@ -257,179 +381,222 @@ if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_read" ] ; then
     cp -a /etc/genpdsdm/aliases.org /etc/aliases
     [ -e /etc/postfix/sasl_passwd ] && rm /etc/postfix/sasl_passwd
     #
-    echo ""
-    echo "Questions about the relay host of your provider"
-    echo ""
-    echo "We assume the relay host is accessable via port 587 (submission) and"
-    echo "requires a user name and password"
+    message="Questions about the relay host of your provider\n\
+We assume the relay host is accessible via port 587 (submission)\n\
+and requires a user name and password.\n\
+An MX record for this name will not be used."
+    n=0
     while true ; do
-	[ $OLD -eq 0 -a ! -z "$RELAYHOST" ] && echo "A single Enter will take \"$RELAYHOST\" as its value"
-	echo -n "Please enter the name of the relayhost: "
-	read relayhost
-        [ "$relayhost" = "" -a $OLD -eq 0 -a -z "$RELAYHOST" ] && continue
+	if [ $DIAL -ne 0 ] ; then
+	    echo -e "$message"
+	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$RELAYHOST" ] && echo -e "\nA single Enter will take \"$RELAYHOST\" as its value"
+	    echo -n -e "\nPlease enter the name of the relayhost: "
+	    read relayhost
+	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$USERNAME" ] && echo -e "\nA single Enter will take \"$USERNAME\" as its value"
+	    echo -e -n "\nPlease enter your user name on the relay host, might be an e-mail address: "
+	    read username
+	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$PASSWORD" ] && echo -e "\nA single Enter will take \"$PASSWORD\" as its value"
+	    echo -n -e "\nPlease enter the password of your account on the relay host: "
+	    read password
+	else
+	    $dialog1 --form "${message}\n\
+The username may be an email address." $(($n+15)) 50 3 \
+"Relayhost : " 1 5 "$RELAYHOST" 1 20 20 20 \
+"Username  : " 2 5 "$USERNAME" 2 20 20 20 \
+"Password  : " 3 5 "$PASSWORD" 3 20 20 20 2> /tmp/rup.tmp
+            [ $? -ne 0 ] && exitmsg "Script aborted by user or other error"
+	    relayhost="$(head -1 /tmp/rup.tmp)"
+            username="$(head -2 /tmp/rup.tmp | tail -1 )"
+            password="$(tail -1 /tmp/rup.tmp)"
+	    rm  /tmp/rup.tmp
+	fi
+	n=0
+	message=""
         [ ! -z "$relayhost" ] && RELAYHOST="$relayhost"
-        [ -z $RELAYHOST ] && echo "The relay host seems to be empty. Please try again" && continue
-	nslookup $RELAYHOST > /tmp/relayhost
-	rcrh=$?
-	rhipaddress=$(grep "Address: " /tmp/relayhost | tail -1)
-	[ $rcrh -eq 0 -a ! -z "$rhipaddress" ] && break
-	echo "The name \"$RELAYHOST\" does not seem to exist in a DNS. Please try again"
-    done
-    while true ; do
-	[ $OLD -eq 0 -a ! -z "$USERNAME" ] && echo "A single Enter will take \"$USERNAME\" as its value"
-	echo -n "Please enter your user name on the relay host, might be an e-mail address: "
-	read username
-        [ "$username" = "" -a $OLD -eq 0 -a -z "$USERNAME" ] && continue
+	dlog "relayhost=$RELAYHOST"
+	if [ -z "$RELAYHOST" ] ; then
+	    message="The relay host is empty.\n" && n=$(($n+1))
+	else
+	    nslookup $RELAYHOST > /tmp/relayhost
+	    rcrh=$?
+	    rhipaddress=$(grep "Address: " /tmp/relayhost | tail -1)
+	    [ $rcrh -ne 0 -o -z "$rhipaddress" ] && \
+		message="${message}The name \"$RELAYHOST\" does not seem to exist in a DNS.\n" && n=$(($n+1))
+	fi
         [ ! -z "$username" ] && USERNAME="$username"
-	[ ! -z "$USERNAME" ] && break
-	echo "The user name seems to be empy. Please try again"
-    done
-    while true ; do
-	[ $OLD -eq 0 -a ! -z "$PASSWORD" ] && echo "A single Enter will take \"$PASSWORD\" as its value"
-	echo -n "Please enter the password of your account on the relay host: "
-	read password
-        [ "$password" = "" -a $OLD -eq 0 -a -z "$PASSWORD" ] && continue
+	dlog "username=$USERNAME"
+	[ -z "$USERNAME" ] && message="${message}The user name is empty.\n" && n=$(($n+1))
         [ ! -z "$password" ] && PASSWORD="$password"
-	[ ! -z "$PASSWORD" ] && break
-	echo "The password seems to be empy. Please try again"
+	dlog "password=$PASSWORD"
+	[ -z "$PASSWORD" ] && message="${message}The password is empty.\n" && n=$(($n+1))
+	[ $n -eq 0 ] && break || message="${message}\n"
     done
+    dlog "End asking relayhost etc."
+    message="Questions about username and name administrator.\n\n\
+The account name of the administrator to be created or already\n\
+present in this server. In case it is created, the password for this\n\
+account will be 'genpdsdm', but as root you can easily change it.\n"
+    n=0
     while true ; do
-	[ $OLD -eq 0 -a ! -z "$LUSERNAME" ] && echo "A single Enter will take \"$LUSERNAME\" as its value"
-	echo -n "Please enter the account name to be created in this server: "
-	read lusername
-        [ "$lusername" = "" -a $OLD -eq 0 -a -z "$LUSERNAME" ] && continue
-        [ ! -z $lusername ] && LUSERNAME="$lusername"
-	[ ! -z "$LUSERNAME" ] && break
-	echo "The local account name seems to be empy. Please try again"
-    done
-    echo "The password for this account will be 'genpdsdm', but as root you can easily change it"
-    while true ; do
-	[ $OLD -eq 0 -a ! -z "$NAME" ] && echo "A single Enter will take \"$NAME\" as its value"
-	echo -n "Please enter your name to be used with this account, like 'John P. Doe': "
-	read name
-        [ "$name" = "" -a $OLD -eq 0 -a -z "$NAME" ] && continue
+	dlog "Asking for administrator etc."
+	[ $OLD -ne 0 -a $n -eq 0 ] || [ $NEW -eq 0 -a $n -eq 0 ] && LUSERNAME="" && NAME=""
+	if [ $DIAL -ne 0 ] ; then
+	    echo -e "\n=====================\n"
+	    [ ! -z "$LUSERNAME" ] && message="${message}\nA single Enter will take \"$LUSERNAME\" as its value"
+	    echo -n -e "${message}\n\nPlease enter the account name : "
+	    read lusername
+	    message=""
+	    [ ! -z "$NAME" ] && message="\nA single Enter will take \"$NAME\" as its value"
+	    message="${message}\nPlease enter the name of the administrator\n\
+for this account"
+	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}, like 'John P. Doe' : " || message="${message} : "
+	    echo -n -e "$message"
+	    read name
+	else
+	    [ $n -eq 0 ] && message="${message}\n\
+The account name of the administrator and the\nfull name"
+	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}, like 'John P. Doe',"
+	    [ $n -eq 0 ] && message="${message} to be created or already\n\
+present in this server.\n\
+In case it is created, the password for this account will be\n\
+'genpdsdm', but as root you can easily change it."
+	    [ $n -eq 0 ] && m=15 || m=$(($n+9))
+	    $dialog1 --form "$message" $m 65 2 \
+"Account name administrator : " 1 5 "$LUSERNAME" 1 35 20 20 \
+"Full name                  : " 2 5 "$NAME" 2 35 20 20  2>/tmp/lu.tmp
+	    [ $? -ne 0 ] && exitmsg "Script aborted by user or other error."
+	    lusername=$(head -1 /tmp/lu.tmp)
+	    name=$(tail -1 /tmp/lu.tmp)
+	    rm /tmp/lu.tmp
+	    dlog "lusername=$lusername, name=$name"
+	fi
+	n=0
+	dlog "lusername=$lusername, name=$name"
+        [ ! -z "$lusername" ] && LUSERNAME="$lusername"
+	[ -z "$LUSERNAME" ] && message="The account name of the administator is empty.\n" && n=$(($n+1))
         [ ! -z "$name" ] && NAME="$name"
-	[ ! -z "$NAME" ] && break
-	echo "Your name seems to be empy. Please try again"
+	[ -z "$NAME" ] && message="${message}The name, comment in /etc/passwd, is empty.\n" && n=$(($n+1))
+	[ $n -eq 0 ] && break || message="${message}Please try again.\n"
     done
     grep -q "$LUSERNAME" /etc/passwd
     if [ $? -eq 0 ] ; then
-	echo "The user \"$LUSERNAME\" already exists. Your name as comment may have changed and will be replaced."
-	echo "The password will remain the same as it is"
-        usermod -c "$NAME" "$LUSERNAME"
+	message="\nThe user \"$LUSERNAME\" already exists. The name as comment\n\
+may have changed and will be replaced.\n\
+The password will remain the same as it is."
+	[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 6 0
+       	[ $DIAL -eq 0 ] && sleep 5
+        usermod -c "$NAME" "$LUSERNAME" > /dev/null
     else
-        useradd -c "$NAME" -m -p genpdsdm "$LUSERNAME"
+        useradd -c "$NAME" -m -p genpdsdm "$LUSERNAME" > /dev/null
     fi
+    dlog "lusername=$LUSERNAME,name=$NAME"
+    n=0
+    message="\nWhen sending an email as this user the sender address\n\
+will be \"${LUSERNAME}@${DOMAINNAME}\"\n\
+You will have a canonical name like \"john.p.doe@${DOMAINNAME}\"."
+    [ $OLD -ne 0 ] && ENAME=""
     while true ; do
-	echo "When sending an email as this user the sender address will be \"$LUSERNAME@$DOMAINNAME\""
-        echo "You may want to have a canonical sender name like \"John.P.Doe@$DOMAINNAME\""
-	[ $OLD -eq 0 -a ! -z "$FULLNAME" ] && echo "A single Enter will take \"$FULLNAME\" as its value"
-        echo -n "Enter the part you want before the @ : "
-	read fullname
-        [ "$fullname" = "" -a $OLD -eq 0 -a -z "$FULLNAME" ] && continue
-        [ ! -z "$fullname" ] && FULLNAME="$fullname"
-	[ ! -z "$FULLNAME" ] && break
-        echo "The canonical sender name seems to be empty. Please try again"
+	if [ $DIAL -ne 0 ] ; then
+	    [ $OLD -eq 0 -a ! -z "$ENAME" ] && message="${message}\nA single Enter will take \"$ENAME\" as its value"
+            echo -n -e "${message}\nEnter the part you want before the @ : "
+	    read ename
+	else
+	    $dialog1 --form "${message}" 9 0 1 "Part before @ : " 1 5 "$ENAME" 1 45 20 20 2> /tmp/fn.tmp
+	    [ $? -ne 0 ] && exitmsg "Script aborted on user request or other error."
+	    ename=$(head -1 /tmp/fn.tmp)
+	    rm /tmp/fn.tmp
+	fi
+	n=0
+        [ ! -z "$ename" ] && ENAME="$ename"
+	[ -z "$ENAME" ] && message="The part before the @ is empty. Please try again\n\n" && n=1
+	[ $n -eq 0 ] && break
     done
+    dlog "ename=$ENAME"
     #
     # Parameters for self signed certificates
     #
-    echo ""
-    echo "Questions about self signed certificates"
-    echo ""
-    echo "In certificates usually parameters like Country, State, Locality/City, Organization"
-    echo "and Organizational Unit are present. These are not really necessary, but at least a"
-    echo "two character country code is required"
-    echo "The script will use it own names for Organizational Unit"
-    #
-    # Country code
-    #
+    message="\n\
+Questions about self signed certificates\n\n\
+In certificates usually parameters like Country, State, Locality/City, Organization\n\
+and Organizational Unit are present.\n\
+The script will use \"Certificate Authority\" as the Organizational Unit\n\
+for the signing certificate and \"IMAP server\" and \"Email server\"\n\
+respectively for Dovecot and Postfix certificates\n"
+    n=0
     while true ; do
-	[ $OLD -eq 0 -a ! -z "$COUNTRYCODE" ] && echo "A single Enter will take \"$COUNTRYCODE\" as its value"
-        echo -n "Enter your two character country code: "
-        read countrycode
-        [ "$countrycode" = "" -a $OLD -eq 0 -a -z "$COUNTRYCODE" ] && continue
-        [ ! -z "$countrycode" ] && COUNTRYCODE="$countrycode"
-        [ ! -z "$COUNTRYCODE" -a ${#COUNTRYCODE} -eq 2 ] && break
-        echo "Empty or not length 2. Please try again"
-    done
-    COUNTRYCODE=$(echo $COUNTRYCODE | tr [a-z] [A-Z])
-    #
-    # State or Province
-    #
-    echo -n "Enter the name of your STATE or PROVINCE"
-    if [ $OLD -eq 0 -a ! -z "$STATEPROVINCE" ] ; then
-        echo ", but ..."
-	echo -n "Enter means take \"$STATEPROVINCE\", a dot '.' means leave empty : "
-        read stateprovince
-        if [ ! -z "$stateprovince" ] ; then
-	    if [ ! "$stateprovince" = "." ] ; then
-		STATEPROVINCE="$stateprovince"
-            else
-		STATEPROVINCE=""
-            fi
+	    if [ $OLD -ne 0 -a $n -eq 0 ] || [ $NEW -eq 0 -a $n -eq 0 ] ; then
+            COUNTRYCODE=""
+            STATEPROVINCE=""
+            LOCALITYCITY=""
+            ORGANIZATION=""
 	fi
-    else
-	echo ""
-	echo -n "Enter means leave empty, anything else means the name : "
-        read STATEPROVINCE
-    fi
-    #
-    # Locality or City
-    #
-    echo -n "Enter the name of your LOCALITY/CITY"
-    if [ $OLD -eq 0 -a ! -z "$LOCALITYCITY" ] ; then
-        echo ", but ..."
-	echo -n "Enter means take \"$LOCALITYCITY\", a dot '.' means leave empty : "
-        read localitycity
-        if [ ! -z "$localitycity" ] ; then
-	    if [ ! "$localitycity" = "." ] ; then
-		LOCALITYCITY="$localitycity"
-            else
-		LOCALITYCITY=""
-	    fi
-        fi	    
-    else
-	echo ""
-	echo -n "Enter means leave empty, anything else means the name : "
-        read LOCALITYCITY
-    fi
-    #
-    # Organization name
-    #
-    echo -n "Enter the name of your ORGANIZATION"
-    if [ $OLD -eq 0 -a ! -z "$ORGANIZATION" ] ; then
-        echo ", but ..."
-	echo -n "Enter means take \"$ORGANIZATION\", a dot '.' means leave empty : "
-        read organization
-        if [ ! -z "$organization" ] ; then
-	    if [ ! "$organization" = "." ] ; then
-		ORGANIZATION="$organization"
-            else
-		ORGANIZATION=""
-	    fi
-        fi	    
-    else
-        echo ""
-	echo -n "Enter means leave empty, anything else means the name : "
-        read ORGANIZATION
-    fi
-    #
-    #
-    #
-    echo ""
-    echo "The script will use Certificate Authority as the Organizational Unit for the signing certificate"
-    echo "and \"IMAP server\" and \"EMAIL server\" respectively for Dovecot and Postfix certificates"
-    echo ""
+	n=0
+	if [ $DIAL -ne 0 ] ; then
+	    #
+	    # Country code
+	    #
+	    [ ! -z "$COUNTRYCODE" ] && \
+		message="${message}\nA single Enter will take \"$COUNTRYCODE\" as its value"
+            echo -n -e "${message}\nEnter the two character country code: "
+	    read countrycode
+	    #
+	    # State or Province
+	    #
+	    [ ! -z "$STATEPROVINCE" ] && \
+		echo "A single Enter will take \"$STATEPROVINCE\" as its value"
+	    echo -n "Enter the name of the STATE or PROVINCE: "
+	    read stateprovince
+	    #
+	    # Locality or City
+	    #
+	    [ ! -z "$LOCALITYCITY" ] && \
+		echo "A single Enter will take \"$LOCALITYCITY\" as its value"
+	    echo -n "Enter the name of the LOCALITY/CITY: "
+	    read localitycity
+	    #
+	    # Organization
+	    #
+	    [ ! -z "$ORGANIZATION" ] && \
+		echo "A single Enter will take \"$ORGANIZATION\" as its value"
+	    echo -n "Enter the name of the ORGANIZATION: "
+	    read organization
+	else
+	    $dialog1 --form "${message}" $(($n+18)) 0 4 \
+"Country code        : " 1 5 "$COUNTRYCODE" 1 27 20 20 \
+"State/Province      : " 2 5 "$STATEPROVINCE" 2 27 20 20 \
+"Locality/City       : " 3 5 "$LOCALITYCITY" 3 27 20 20 \
+"Organisation name   : " 4 5 "$ORGANIZATION" 4 27 30 30 2>/tmp/cslo.tmp
+	    [ $? -ne 0 ] && exitmsg "Script aborted by user or other error"
+	    countrycode=$(head -1 /tmp/cslo.tmp)
+	    stateprovince=$(head -2 /tmp/cslo.tmp | tail -1)
+	    localitycity=$(head -3 /tmp/cslo.tmp | tail -1)
+	    organization=$(tail -1 /tmp/cslo.tmp)
+	    rm /tmp/cslo.tmp
+	fi
+	dlog "countrycode=$countrycode, stateprovince=$stateprovince, localitycity=$localitycity, organization=$organization"
+	message="The following errors are found:\n"
+        [ ! -z "$countrycode" ] && COUNTRYCODE="$countrycode"
+        [ ! -z "$COUNTRYCODE" -a ${#COUNTRYCODE} -ne 2 ] && \
+	    message="${message}\nCountry code is empty or not length 2." && n=$(($n+1))
+	COUNTRYCODE=$(echo $COUNTRYCODE | tr [a-z] [A-Z])
+	[ ! -z "stateprovince" ] && STATEPROVINCE="$stateprovince"
+	[ -z "$STATEPROVINCE" ] && message="${message}\nState/Province is empty." && n=$(($n+1))
+        [ ! -z "$localitycity" ] && LOCALITYCITY="$localitycity"
+	[ -z "$LOCALITYCITY" ] && message="${message}\nLocality/City is empty." && n=$(($n+1))
+        [ ! -z "$organization" ] && ORGANIZATION="$organization"
+	[ -z "$ORGANIZATION" ] && message="${message}\nName organization is empty." && n=$(($n+1))
+	[ $n -eq 0 ] && break
+    done
+    dlog "== Parameters read; save parameters in history =="
     if [ -z "$PARAMETERS_read" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
 	echo "[$RELAYHOST]:587 $USERNAME:$PASSWORD" >> /etc/postfix/sasl_passwd
-	echo "$LUSERNAME	$FULLNAME" >> /etc/postfix/canonical
+	echo "$LUSERNAME	$ENAME" >> /etc/postfix/canonical
         postmap /etc/postfix/sasl_passwd
         postmap /etc/postfix/canonical
     fi
     grep -q RELAYHOST /etc/genpdsdm/genpdsdm.history
     if [ $? -ne 0 ] ; then
-	echo "RELAYHOST=\"$RELAYHOST\"" >> /etc/genpdsdm/genpdsdm.history
+	echo "RELAYHOST=\"${RELAYHOST}\"" >> /etc/genpdsdm/genpdsdm.history
     else
 	sed -i "/^RELAYHOST=/c RELAYHOST=\"$RELAYHOST\"" /etc/genpdsdm/genpdsdm.history
     fi
@@ -457,15 +624,20 @@ if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_read" ] ; then
     else
 	sed -i "/^NAME=/c NAME=\"$NAME\"" /etc/genpdsdm/genpdsdm.history
     fi
-    grep -q FULLNAME /etc/genpdsdm/genpdsdm.history
+    grep -q ENAME /etc/genpdsdm/genpdsdm.history
     if [ $? -ne 0 ] ; then
-	echo "FULLNAME=\"$FULLNAME\"" >> /etc/genpdsdm/genpdsdm.history
+	echo "ENAME=\"$ENAME\"" >> /etc/genpdsdm/genpdsdm.history
     else
-	sed -i "/^FULLNAME=/c FULLNAME=\"$FULLNAME\"" /etc/genpdsdm/genpdsdm.history
+	sed -i "/^ENAME=/c ENAME=\"$ENAME\"" /etc/genpdsdm/genpdsdm.history
     fi
-    echo "$FULLNAME:	$LUSERNAME" >> /etc/aliases
-    echo "root:	$LUSERNAME" >> /etc/aliases
-    echo "ca:	root" >> /etc/aliases
+    echo "$ENAME:	$LUSERNAME" >> /etc/aliases
+    echo -e "ca:\t\troot" >> /etc/aliases
+    grep -q -E "^root:[[:blank:]]" /etc/aliases
+    if [ $? -ne 0 ] ; then
+        echo -e "root:\t$LUSERNAME" >> /etc/aliases
+    else
+        sed -i "/^root:[[:blank:]]/c root:\t$LUSERNAME" /etc/aliases
+    fi
     newaliases
     grep -q COUNTRYCODE /etc/genpdsdm/genpdsdm.history
     if [ $? -ne 0 ] ; then
@@ -493,16 +665,22 @@ if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_read" ] ; then
     fi
     [ -z "$PARAMETERS_read" ] && echo PARAMETERS_read=yes >> /etc/genpdsdm/genpdsdm.history
 fi
+dlog "== End needed parameters =="
 #
 # Configuration of the firewall
 #
 if [ -z "$FIREWALL_config" ] ; then
-    echo "=========================="
-    echo "Configurating firewalld..."
-    echo "=========================="
+    message="\
+==============================\n\
+= Configurating firewalld... =\n\
+=============================="
+    interf=$(ip r | grep default)
+    interf=${interf#*dev }
+    interf=${interf% proto*}
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
     [ "$(systemctl is-enabled firewalld.service)" = "disabled" ] && systemctl enable firewalld.service
     [ "$(systemctl is-active firewalld.service)" = "inactive" ] && systemctl start firewalld.service
-    [ "$(firewall-cmd --list-interface --zone=public)" != "eth0" ] && firewall-cmd --zone=public --add-interface=eth0
+    [ "$(firewall-cmd --list-interface --zone=public)" != "$interf" ] && firewall-cmd --zone=public --add-interface=$interf
     firewall-cmd --list-services --zone=public | grep -q " smtp "
     [ $? -ne 0 ] && firewall-cmd --zone=public --add-service=smtp
     localdomain=$(ip r | tail -1)
@@ -515,14 +693,17 @@ if [ -z "$FIREWALL_config" ] ; then
     [ $? -ne 0 ] && firewall-cmd --zone=public --add-service=imaps
     firewall-cmd --runtime-to-permanent
     echo FIREWALL_config=yes >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 #
 # Configuration of /etc/postfix/main.cf
 #
 if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
-    echo "==================================="
-    echo "Configuring /etc/postfix/main.cf..."
-    echo "==================================="
+    message="\
+=======================================\n\
+= Configuring /etc/postfix/main.cf... =\n\
+======================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
     [ -e /etc/genpdsdm/main.cf.org ] && cp -a /etc/genpdsdm/main.cf.org /etc/postfix/main.cf
     postconf "inet_interfaces = all"
     postconf "myhostname = smtp.$DOMAINNAME"
@@ -532,7 +713,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "myorigin = \$mydomain"
     db_type=$(postconf default_database_type)
     db_type=${db_type##* }
-    postconf "sender_canonical_maps = ${db_type}:/etc/postfix/sender_canonical"
+    postconf "canonical_maps = ${db_type}:/etc/postfix/canonical"
     postconf "smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_invalid_helo_hostname,\
       reject_non_fqdn_sender, reject_unknown_sender_domain, reject_non_fqdn_recipient, reject_unknown_recipient_domain,\
       reject_unauth_destination, reject_rbl_client zen.spamhaus.org"
@@ -568,14 +749,17 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "content_filter = amavis:[127.0.0.1]:10024"
     grep -q MAINCF_done /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "MAINCF_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 #
 # Configuration of /etc/postfix/master.cf
 #
 if [ -z "$MASTERCF_done" -o $NEW -eq 0 ] ; then
-    echo "====================================="
-    echo "Configuring /etc/postfix/master.cf..."
-    echo "====================================="
+    message="\
+=========================================\n\
+= Configuring /etc/postfix/master.cf... =\n\
+========================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
     [ -e /etc/genpdsdm/master.cf.org ] && cp -a /etc/genpdsdm/master.cf.org /etc/postfix/master.cf
     cat <<EOF > /tmp/sedscript.txt
 #/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
@@ -598,60 +782,142 @@ EOF
     [ $? -ne 0 ] && useradd -c "SPF Policy Server for Postfix" -d /etc/policyd-spf -s "/sbin/nologin" -r policyd-spf
     grep -q MASTERCF_done /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "MASTERCF_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 #
 # Generation of certificates for postfix
 #
-if [ -z "$POSTFIXCERTIFICATES_done" -o $NEW -eq 0 ] ; then
-    echo "======================================"
-    echo "Generating Certificates for postfix..."
-    echo "======================================"
+if [ -z "$POSTFIXCERTIFICATES_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
+    message="\
+=====================================\n\
+= Generating Certificates for CA... =\n\
+====================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    openssl=/usr/bin/openssl
+    sslpath=/etc/postfix/ssl
+    dovecotpath=/etc/ssl/private
+    sslconfig=$sslpath/openssl_postfix.conf
+    date="$(date)"
+    oldmask=$(umask)
     #
     # Remove what might be left by a previous run
     #
-    [ -d ./demoCA ] && rm -rf ./demoCA
-    ls *.pem > /dev/null 2>&1
-    [ $? -eq 0 ] && rm *.pem
-    # The following commands are a copy of what "/usr/share/ssl/misc/CA.pl -newca" would do, except
-    # that we add '-subj "<parameters"' to provide what else would be asked for
-    mkdir ./demoCA
-    mkdir ./demoCA/certs
-    mkdir ./demoCA/crl
-    mkdir ./demoCA/newcerts
-    mkdir ./demoCA/private
-    touch ./demoCA/index.txt
-    echo "01" > ./demoCA/crlnumber
-    openssl req  -new -keyout ./demoCA/private/cakey.pem -out ./demoCA/careq.pem \
-      -subj "/C=$COUNTRYCODE/ST=$STATEPROVINCE/L=$LOCALITYCITY/O=$ORGANIZATION/OU=Certificate Authority/emailAddress=ca@$DOMAINNAME/CN=Certificate Authority"
-    openssl ca  -create_serial -out ./demoCA/cacert.pem -days 3653 -batch -keyfile ./demoCA/private/cakey.pem\
-      -selfsign -extensions v3_ca\
-      -subj "/C=$COUNTRYCODE/ST=$STATEPROVINCE/L=$LOCALITYCITY/O=$ORGANIZATION/OU=Certificate Authority/emailAddress=ca@$DOMAINNAME/CN=Certificate Authority/"\
-      -infiles ./demoCA/careq.pem
-    # Next commands are not necessary because the previous command already has days on 3653
-    #openssl x509 -in demoCA/cacert.pem -days 3653 -out ./cacert.pem -signkey demoCA/private/cakey.pem
-    #mv ./cacert.pem demoCA/
-    openssl req -new -nodes -subj\
-      "/CN=smtp.$DOMAINNAME/O=$ORGANIZATION/C=$COUNTRYCODE/ST=$STATEPROVINCE/L=$LOCALITYCITY/emailAddress=postmaster@$DOMAINNAME"\
-      -keyout newkey.pem -out newreq.pem
-    openssl ca -days 3653 -out newcert.pem -infiles newreq.pem
-    cp demoCA/cacert.pem newkey.pem newcert.pem /etc/postfix/
-    chmod 644 /etc/postfix/cacert.pem /etc/postfix/newcert.pem
+    [ -d $sslpath ] && rm -rf $sslpath/*
+    [ -d $dovecotpath ] && rm -rf $dovecotpath/*
+    umask 077
+    mkdir -p $sslpath/private
+    mkdir -p $sslpath/certs
+    mkdir -p $sslpath/newcerts
+    [ -f $sslpath/serial ] || echo "01" > $sslpath/serial
+    touch $sslpath/index.txt
+    sed -e "s/@POSTFIX_SSL_COUNTRY@/$COUNTRYCODE/" \
+        -e "s/@POSTFIX_SSL_STATE@/$STATEPROVINCE/" \
+        -e "s/@POSTFIX_SSL_LOCALITY@/$LOCALITYCITY/" \
+        -e "s/@POSTFIX_SSL_ORGANIZATION@/$ORGANIZATION/" \
+        -e "s/@POSTFIX_SSL_ORGANIZATIONAL_UNIT@/Certificate Authority/" \
+        -e "s/@POSTFIX_SSL_COMMON_NAME@/Certificate Authority/" \
+        -e "s/@POSTFIX_SSL_EMAIL_ADDRESS@/ca@$DOMAINNAME/" \
+        -e "s/@RANDOM@/${RANDOM}${RANDOM}/" \
+        -e "s/@COMMENT@/generated by genpdsdm at $date/" \
+        /etc/postfix/openssl_postfix.conf.in > $sslconfig
+    $openssl req -days 3653 -config $sslconfig -new -x509 -nodes \
+        -keyout $sslpath/private/cakey.pem -out $sslpath/cacert.pem 2>/dev/null
+    if [ $? -ne 0 ] ; then
+        rm -rf $sslpath
+        umask $oldmask
+        exitmsg "Error creating CA request/certificate\nAsk author for help"
+    fi
+    [ $DIAL -eq 0 ] && sleep 5
+    message="\
+=========================================\n\
+= Generating Certificates for postfix.. =\n\
+========================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    sed -i -e "/^commonName / s/Certificate Authority/smtp.$DOMAINNAME/" \
+	-e "/^organizationalUnitName / s/Certificate Authority/Email server/" \
+        -e "s/ca@$DOMAINNAME/postmaster@$DOMAINNAME/" $sslconfig
+    $openssl req -config $sslconfig -new -nodes -keyout \
+        $sslpath/certs/postfixkey.pem -out $sslpath/certs/postfixreq.pem 2>/dev/null
+    if [ $? -ne 0 ] ; then
+        rm -rf $sslpath
+        umask $oldmask
+        exitmsg  "Error creating certificate request for postfix"
+    fi
+    # signing server certificate for postfix
+    $openssl ca -config $sslconfig -notext -batch \
+        -out $sslpath/certs/postfixcert.pem \
+        -infiles $sslpath/certs/postfixreq.pem 2>/dev/null
+    if [ $? -ne 0 ] ; then
+        rm -rf $sslpath
+        umask $oldmask
+        exitmsg "Error signing server certificate for postfix"
+    fi
     grep -q POSTFIXCERTIFICATES_done /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "POSTFIXCERTIFICATES_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
+fi
+if [ -z "$CERTIFICATEDOVECOT_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
+    message="\
+==========================================\n\
+= Generating Certificates for dovecot... =\n\
+=========================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    # creating certificate request for dovecot
+    [ ! -d $dovecotpath ] && mkdir -p $dovecotpath
+    # change Common Name and Organizational Unit
+    sed -i -e "s/smtp.$DOMAINNAME/imap.$DOMAIN/" \
+           -e "s/Email server/IMAP server/" $sslconfig
+    $openssl req -config $sslconfig -new -nodes -keyout \
+        $dovecotpath/dovecot.pem -out $dovecotpath/dovecotreq.pem 2>/dev/null
+    if [ $? -ne 0 ] ; then
+        rm -rf $dovecotpath
+        rm -rf $sslpath
+        umask $oldmask
+        exitmsg "Error creating certificate request for dovecot"
+    fi
+    # signing server certificate for dovecot..."
+    $openssl ca -config $sslconfig -notext -batch \
+        -out $dovecotpath/dovecot.crt \
+        -infiles $dovecotpath/dovecotreq.pem 2>/dev/null
+    if [ $? -ne 0 ] ; then
+        rm -rf $dovecotpath
+        rm -rf $sslpath
+        umask $oldmask
+        exitmsg "Error signing server certificate for dovecot"
+    fi
+    chmod 755 $sslpath
+    chmod 755 $sslpath/certs
+    chmod 644 $sslpath/cacert.pem
+    umask $oldmask
+    if [ ! -e /etc/dovecot/dh.pem ] ; then
+	if [ -e /etc/genpdsdm/dh.pem ] ; then
+	    cp /etc/genpdsdm/dh.pem /etc/dovecot/
+	else
+	    message="WARNING: It might take quite some time (160 minutes on a Raspberry Pi 4B) to finish the following command\n\
+===>> openssl dhparam -out /etc/dovecot/dh.pem 4096"
+	    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox "$message" 5 0
+	    openssl dhparam -out /etc/dovecot/dh.pem 4096
+	    cp /etc/dovecot/dh.pem /etc/genpdsdm/
+	fi
+    fi
+    grep -q CERTIFICATEDOVECOT_done /etc/genpdsdm/genpdsdm.history
+    [ $? -ne 0 ] && echo "CERTIFICATEDOVECOT_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    dlog "dh.pem generated"
 fi
 #
 # Configuration of Dovecot
 #
-if [ -z "$DOVECOT_done" -o $NEW -eq 0 ] ; then
-    echo "======================"
-    echo "Configuring dovecot..."
-    echo "======================"
+if [ -z "$DOVECOT_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
+    message="\
+==========================\n\
+= Configuring dovecot... =\n\
+=========================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
     if [ -e /etc/genpdsdm/dovecot.conf.org ] ; then
 	cp -a /etc/genpdsdm/dovecot.conf.org /etc/dovecot/dovecot.conf
 	cp -a /etc/genpdsdm/10-mail.conf.org /etc/dovecot/conf.d/10-mail.conf
 	cp -a /etc/genpdsdm/10-master.conf.org /etc/dovecot/conf.d/10-master.conf
 	cp -a /etc/genpdsdm/10-ssl.conf.org /etc/dovecot/conf.d/10-ssl.conf
-	cp -a /etc/genpdsdm/dovecot-mkcert.sh /usr/share/dovecot/mkcert.sh
 	cp -a /etc/genpdsdm/dovecot-openssl.cnf.org /usr/share/dovecot/dovecot-openssl.cnf
 	[ -e /etc/ssl/private/dovecot.crt ] && rm /etc/ssl/private/dovecot.crt
 	[ -e /etc/ssl/private/dovecot.pem ] && rm /etc/ssl/private/dovecot.pem
@@ -685,50 +951,19 @@ EOF
     sed -i -f /tmp/sedscript.txt /etc/dovecot/conf.d/10-mail.conf
     [ $(systemctl is-enabled dovecot.service) = "disabled" ] && systemctl enable dovecot.service
     [ $(systemctl is-active dovecot.service) = "inactive" ] && systemctl start dovecot.service
-    grep -q DOVECOT_done /etc/genpdsdm/genpdsdm.history
+    grep -q -e "^DOVECOT_done" /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "DOVECOT_done=yes" >> /etc/genpdsdm/genpdsdm.history
-fi
-#
-# Generate certificates for dovecot
-#
-if [ -z "$CERTIFICATEDOVECOT_done" -o $NEW -eq 0 ] ; then
-    echo "====================================="
-    echo "Generating certificate for dovecot..."
-    echo "====================================="
-    cat <<EOF > /tmp/sedscript.txt
-/^#C=FI/c C=$COUNTRYCODE
-/^#ST=/c ST=$STATEPROVINCE
-/^#L=Helsinki/c L=$LOCALITYCITY
-/^#O=Dovecot/c O=$ORGANIZATION
-/^CN=imap.example.com/c CN=imap.$DOMAINNAME
-/^emailAddress=/c emailAddress=postmaster@$DOMAINNAME
-EOF
-    sed -i -f /tmp/sedscript.txt /usr/share/dovecot/dovecot-openssl.cnf
-    sed -i '/365/ s/365/3653/' /usr/share/dovecot/mkcert.sh
-    chmod 700 /usr/share/dovecot/mkcert.sh
-    folder=$(pwd)
-    cd /usr/share/dovecot/
-    ./mkcert.sh
-    cd $folder
-    if [ ! -e /etc/dovecot/dh.pem ] ; then
-	if [ -e /etc/genpdsdm/dh.pem ] ; then
-	    cp /etc/genpdsdm/dh.pem /etc/dovecot/
-	else
-	    echo "WARNING: It might take quite some time (160 minutes on a Raspberry Pi 4B) to finish the following command"
-	    openssl dhparam -out /etc/dovecot/dh.pem 4096
-	    cp /etc/dovecot/dh.pem /etc/genpdsdm/
-	fi
-    fi
-    grep -q CERTIFICATEDOVECOT_done /etc/genpdsdm/genpdsdm.history
-    [ $? -ne 0 ] && echo "CERTIFICATEDOVECOT_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 #
 # Activate clamav
 #
 if [ -z "$CLAMAV_activated" ] ; then
-    echo "==============================="
-    echo "Starting freshclam and clamd..."
-    echo "==============================="
+    message="\
+===================================\n\
+= Starting freshclam and clamd... =\n\
+==================================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
     [ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
     [ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
     [ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service
@@ -740,10 +975,12 @@ fi
 #
 # Configuration of Amavis-new
 #
-if [ -z "$AMAVIS_done" -o $NEW -eq 0 ] ; then
-    echo "====================="
-    echo "Configuring amavis..."
-    echo "====================="
+if [ -z "$AMAVIS_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
+    message="\
+=========================\n\
+= Configuring amavis... =\n\
+========================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
     [ -e /etc/genpdsdm/amavisd.conf.org ] && cp -a /etc/genpdsdm/amavisd.conf.org /etc/amavisd.conf
     cat <<EOF > /tmp/sedscript.txt
 /^\\\$max_servers = 2/ s/2/1/
@@ -789,15 +1026,18 @@ EOF
     [ $(systemctl is-active amavis.service) = "inactive" ] && systemctl start amavis.service
     grep -q AMAVIS_done /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "AMAVIS_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 [ -e /tmp/sedscript.txt ] && rm /tmp/sedscript.txt
 #
 # Configuration of DMARC
 #
-if [ -z "$DMARC_done" -o $NEW -eq 0 ] ; then
-    echo "====================="
-    echo "Configuring DMARC... "
-    echo "====================="
+if [ -z "$DMARC_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
+    message="\
+=========================\n\
+= Configuring DMARC...  =\n\
+========================="
+    [ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
     if [ -e /etc/genpdsdm/opendmarc.conf.org ] ; then
 	cp -a /etc/genpdsdm/opendmarc.conf.org /etc/opendmarc.conf
 	cat <<EOF > /tmp/sedscript.txt
@@ -829,14 +1069,18 @@ EOF
     [ "$(systemctl is-active opendmarc.service)" != "active" ] && systemctl start opendmarc.service
     grep -q DMARC_done /etc/genpdsdm/genpdsdm.history
     [ $? -ne 0 ] && echo "DMARC_done=yes" >> /etc/genpdsdm/genpdsdm.history
+    [ $DIAL -eq 0 ] && sleep 5
 fi
 #
 # Restart possibly changed services
 #
-echo "======================================"
-echo "Restarting postfix, dovecot and amavis"
-echo "======================================"
+message="\
+=====================================================\n\
+= Restarting postfix, dovecot, amavis and opendmarc =\n\
+====================================================="
+[ $DIAL -ne 0 ] && echo -e "$message" || $dialog1 --infobox  "$message" 5 0
 systemctl restart postfix.service
 systemctl restart dovecot.service
 systemctl restart amavis.service
 systemctl restart opendmarc.service
+[ $DIAL -eq 0 ] && sleep 5 && clear

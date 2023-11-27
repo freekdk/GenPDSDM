@@ -6,3 +6,4 @@ HOWTO-git.txt
 postfix
 master.cf
 postfix-master.cf.patch
+vernpdadsd.sh

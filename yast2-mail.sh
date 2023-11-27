@@ -58,8 +58,13 @@ setparm()
 {
     grep -q -E "^${1}=" /etc/sysconfig/mail
     if [ $? -ne 0 ] ; then
-	echo "Unknown parameter ${1}= in /etc/sysconfig/mail"
-	exit 1
+	if [ "${1}" != "USE_DKIM" ] ; then
+	    echo "Unknown parameter ${1}= in /etc/sysconfig/mail"
+	    exit 1
+	else
+	    sed -i -e '/^AMAVIS_SENDMAIL_MILTER=/ a\
+\n## Type:\tstring\n## Default:\t"no"\n#\n# Use DKIM no or yes (in Amavis) or "openDKIM"\n#\nUSE_DKIM="no"' /etc/sysconfig/mail
+	fi
     fi
     sed -i /^${1}=/c\
 ${1}=\"${2}\" /etc/sysconfig/mail
@@ -1040,65 +1045,54 @@ fi
 # Support for checking on DKIM information and generating DKIM signing
 #
 if [ "$USE_AMAVIS" = "yes" ] ; then
-    if [ "$POSTFIX_WITH_DKIM" = "no" ] ; then
+    if [ "$USE_DKIM" = "no" ] ; then
 	echo "Currently DKIM support has not been enabled"
-	echo "Do you want to enable DKIM support"
+	echo "Do you want to enable any DKIM support"
 	yesorno
 	if [ $? -eq 0 ] ; then
-	    setpar POSTFIX_WITH_DKIM yes
-	    POSTFIX_WITH_DKIM="yes"
+		while true ; do
+		    echo -n "Enter A (DKIM support from Amavis) or O (DKIM support fron openDKIM)"
+		    read answ
+		    case $answ in
+			"A"|"a" ) setparm USE_DKIM yes
+				  USE_DKIM="yes"
+				  break ;;
+			"O"|"o" ) setparm USE_DKIM openDKIM
+				  USE_DKIM="openDKIM"
+				  break ;;
+			*	) echo "Please answer A or O" ;;
+		    esac
+		done
 	fi
     else
-	echo "Currently DKIM support has been enabled"
-        echo "Is this OK? Otherwise it will be disabled."
+	[ "$USE_DKIM" = "yes" ] && echo "Currently DKIM support with Amavis has been enabled"
+	[ "$USE_DKIM" = "openDKIM" ] && echo "Currently DKIM support with openDKIM has been enabled"
+        echo "Is this OK?"
         yesorno
         if [ $? -ne 0 ] ; then
-            setpar POSTFIX_WITH_DKIM no
-            POSTFIX_WITH_DKIM="no"
+	    while true ; do
+		echo -n "Enter N (no), A (Amavis) or O (openDKIM) support for DKIM: "
+		read answ
+		case $answ in
+		    "N"|"n" ) setparm USE_DKIM no
+			      USE_DKIM="no"
+			      break ;;
+		    "A"|"a" ) setparm USE_DKIM yes
+			      USE_DKIM="yes"
+			      break ;;
+		    "O"|"o" ) setparm USE_DKIM openDKIM
+			      USE_DKIM="openDKIM"
+			      break ;;
+		    *	    ) echo "Please answer N or A or O" ;;
+		esac
+	    done
         fi
     fi
 else
-    setpar POSTFIX_WITH_DKIM no
-    POSTFIX_WITH_DKIM="no"
+    setparm USE_DKIM no
+    USE_DKIM="no"
 fi
-if [ "$POSTFIX_WITH_DKIM" = "yes" ] ; then
-    if [ "${POSTFIX_DKIM_TYPE,,}"  = "opendkim" ] ; then
-	echo "Currently DKIM support is done using openDKIM?"
-	echo "Do you want to change that into DKIM support by AMaVis?"
-	yesorno
-	if [ $? -eq 0 ] ; then
-	    setpar POSTFIX_DKIM_TYPE AMAVIS_DKIM
-	    POSTFIX_DKIM_TYPE="AMAVIS_DKIM"
-	    if [ -f /etc/opendkim/opendkim.conf ] ; then
-		zypper rm -u -y opendkim
-	    fi
-	else
-	    setpar POSTFIX_DKIM_TYPE openDKIM
-	    POSTFIX_DKIM_TYPE="openDKIM"
-	    if [ ! -f /etc/opendkim/opendkim.conf ] ; then
-		zypper in -y opendkim
-	    fi
-	fi
-    else
-	echo "Currently DKIM support is done using DKIM in AMaVis?"
-        echo "Do you want to change that into DKIM support by openDKIM?"
-	yesorno
-	if [ $? -eq 0 ] ; then
-            setpar POSTFIX_DKIM_TYPE openDKIM
-	    POSTFIX_DKIM_TYPE="openDKIM"
-            if [ ! -f /etc/opendkim.conf ] ; then
-                zypper in -y opendkim
-            fi
-        else
-	    setpar POSTFIX_DKIM_TYPE AMAVIS_DKIM
-	    POSTFIX_DKIM_TYPE="AMAVIS_DKIM"
-            if [ -f /etc/opendkim.conf ] ; then
-                zypper rm -u -y opendkim
-            fi
-	fi
-    fi
-fi
-if [ "${POSTFIX_DKIM_TYPE,,}" = "opendkim" ] ; then
+if [ "${USE_DKIM}" = "openDKIM" ] ; then
    setpar POSTFIX_DKIM_CONN socket
    POSTFIX_DKIM_CONN="socket"
 else
