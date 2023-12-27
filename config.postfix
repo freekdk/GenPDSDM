@@ -108,16 +108,16 @@ mkchroot(){
 		    warn_user "\topendkim is not running with 'Socket      local:/run/opendkim/opendkim/socket
 \tPlease set 'Socket' in '/etc/opendkim/opendkim.conf' as mentioned above."
 		    exit 1
+        	else
+                    DKIM_SOCKET_DIR=$(dirname ${DKIM_SOCKET})
+                    CHR_DKIM_SOCKET=${DKIM_SOCKET#/}
+                    CHR_DKIM_SOCKET_DIR=$(dirname ${CHR_DKIM_SOCKET})
 		fi
-            else
-                DKIM_SOCKET_DIR=$(dirname ${DKIM_SOCKET})
-                CHR_DKIM_SOCKET=${DKIM_SOCKET#/}
-                CHR_DKIM_SOCKET_DIR=$(dirname ${CHR_DKIM_SOCKET})
-            fi
-	else
-            warn_user "\t/etc/opendkim/opendkim.conf does not exist!!\n\
+	    else
+        	warn_user "\t/etc/opendkim/opendkim.conf does not exist!!\n\
 \tThis should not happen!\n\
 \tPlease check if opendkim is installed."
+	    fi
         fi
     fi
     
@@ -742,13 +742,14 @@ using \"off\" instead!"
 	    $PCONF -e "smtp_tls_ciphers = medium"
 	    $PCONF -e "smtp_tls_protocols = >=TLSv1, <=TLSv1.3"
     fi
-    if test "$POSTFIX_SMTP_TLS_CLIENT" == "must"; then
-	    $PCONF -e "smtp_use_tls = yes"
-	    $PCONF -e "smtp_enforce_tls = yes"
-	    $PCONF -e "smtp_tls_security_level = encrypt"
-	    $PCONF -e "smtp_tls_ciphers = medium"
-	    $PCONF -e "smtp_tls_protocols = >=TLSv1, <=TLSv1.3"
-    fi
+#    if test "$POSTFIX_SMTP_TLS_CLIENT" == "must"; then
+#	    $PCONF -e "smtp_use_tls = yes"
+#	    $PCONF -e "smtp_enforce_tls = yes"
+#	    $PCONF -e "smtp_tls_security_level = encrypt"
+#	    $PCONF -e "smtp_tls_ciphers = medium"
+#	    $PCONF -e "smtp_tls_protocols = >=TLSv1, <=TLSv1.3"
+#    fi
+#    Removed: "encrypt" is not meant to be used in main.cf
     if test "$POSTFIX_SMTP_TLS_CLIENT" = "yes" -o "$POSTFIX_SMTP_TLS_CLIENT" = "must" ; then
 	if [[ "${POSTFIX_SMTP_AUTH}" = 'yes' ]]; then
 	    $PCONF -e "smtp_tls_security_level = encrypt"
@@ -1584,13 +1585,13 @@ while( <MCF> ) {
     ## 127.0.0.1:10027
     } elsif( /^\#?\s*(127.0.0.1:10027\s+inet.*)/ ) {
 	if( defined $normalize->{$1} ) { next; } else { $normalize->{$1} = 1; }
-	if ( $usedkim ne "yes" or $usedkim ne "opendkim" ) {
+	if ( $usedkim ne "opendkim" ) {
 	    $line = "#".$1;
 	} else {
 	    $line = $1;
 	}
     } elsif ( /^\#?\s{5}(-o\s)(.*)/ ) {
-	if ( $usedkim ne "yes" or $usedkim ne "opendkim" ) {
+	if ( $usedkim ne "opendkim" ) {
 	    $line = "#     ".$1.$2;
 	} else {
 	    $line = "     ".$1.$2;
@@ -1782,7 +1783,7 @@ EOF
     sed -i -f /tmp/sedscript.txt /etc/dovecot/conf.d/10-ssl.conf
     rm /tmp/sedscript.txt
 fi
-grep -q -E '^  unix_listener \/var\/spool\/postfix\/private\/auth' /etc/dovecot/conf.d/10-master.conf
+grep -q -E '^  unix_listener /var/spool/postfix/private/auth' /etc/dovecot/conf.d/10-master.conf
 if [ $? -ne 0 ] ; then
     cat <<EOF > /tmp/sedscript.txt
 /^  # Postfix smtp-auth/,/^  #}$/ {
@@ -1850,9 +1851,9 @@ if [ -x /usr/sbin/amavisd ]; then
     if [ "$USE_AMAVIS" = "yes" ]; then
         gen_amavisd_cf
 	mv /tmp/amavisd.conf /etc/amavisd.conf
-	[ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
-	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
-	sleep 5
+#	[ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
+#	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
+#	sleep 5
 	[ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service
 	[ "$(systemctl is-active clamd.service)" != "active" ] && systemctl start clamd.service
 	sleep 5

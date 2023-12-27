@@ -452,10 +452,11 @@ POSTFIX_SMTP_TLS_SERVER="no"
 #
 POSTFIX_SMTP_TLS_SERVER_LEGACY_SUPPORT="no"
 
-## Type:        list(no,yes,must)
+## Type:        list(no,yes)
 ## Default:     no
 ## Config:      postfix
 #
+# Originally must was also a possible value, but caused trouble
 # Do you want to enable postfix smtp client to use TLS
 #
 POSTFIX_SMTP_TLS_CLIENT="no"

@@ -58,13 +58,8 @@ setparm()
 {
     grep -q -E "^${1}=" /etc/sysconfig/mail
     if [ $? -ne 0 ] ; then
-	if [ "${1}" != "USE_DKIM" ] ; then
-	    echo "Unknown parameter ${1}= in /etc/sysconfig/mail"
-	    exit 1
-	else
-	    sed -i -e '/^AMAVIS_SENDMAIL_MILTER=/ a\
-\n## Type:\tstring\n## Default:\t"no"\n#\n# Use DKIM no or yes (in Amavis) or "openDKIM"\n#\nUSE_DKIM="no"' /etc/sysconfig/mail
-	fi
+	echo "Unknown parameter ${1}= in /etc/sysconfig/mail"
+	exit 1
     fi
     sed -i /^${1}=/c\
 ${1}=\"${2}\" /etc/sysconfig/mail
@@ -76,8 +71,13 @@ setpara()
 {
     grep -q -E "^${1}=" /etc/sysconfig/amavis
     if [ $? -ne 0 ] ; then
-	echo "Unknown parameter ${1}= in /etc/sysconfig/amavis"
-	exit 1
+	if [ "${1}" != "USE_DKIM" ] ; then
+	    echo "Unknown parameter ${1}= in /etc/sysconfig/amavis"
+	    exit 1
+	else
+	    sed -i -e '/^AMAVIS_SENDMAIL_MILTER=/ a\
+\n## Type:\tstring\n## Default:\t"no"\n#\n# Use DKIM no or yes (in Amavis) or "openDKIM"\n#\nUSE_DKIM="no"' /etc/sysconfig/amavis
+	fi
     fi
     sed -i /^${1}=/c\
 ${1}=\"${2}\" /etc/sysconfig/amavis
@@ -116,6 +116,11 @@ yesorno()
 #
 # Which MTA?
 #
+cat <<EOF
+========================
+= Postfix or Sendmail? =
+========================
+EOF
 [ -f /etc/sendmail.cf ] && isendmail="i"
 [ -f /etc/postfix/main.cf ] && ipostfix="i"
 if [ "$isendmail" != "i" -a "$ipostfix" != "i" ] ; then
@@ -227,6 +232,19 @@ if [ ${#rhost} -ne 0 ] ; then
     [ "$port" != "" ] && rhost=${rhost%:*}
     rhost=${rhost#*[}
     rhost=${rhost%]*}
+    if [ $change -eq 0 ] ; then
+	if [ ${#port} -eq 0 ] ; then
+	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}${offbold}"
+	    echo "You did not specify a port, normaly, you should."
+	else
+	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}:$port${offbold}"
+	fi
+	echo "Is this OK?"
+	yesorno
+	[ $? -eq 0 ] && change=1
+    fi
+fi
+if [ ${#rhost} -ne 0 ] ; then
     userpass=$(grep "$rhost" /etc/postfix/sasl_passwd | tr "\t" " ")
     if [ ${#userpass} -ne 0 ] ; then
 	relayhost=${userpass%% *}
@@ -237,21 +255,11 @@ if [ ${#rhost} -ne 0 ] ; then
 	    changeup=1
 	fi
     fi
-    if [ $change -eq 0 ] ; then
-	if [ ${#port} -eq 0 ] ; then
-	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}${offbold}"
-	else
-	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}:$port${offbold}"
-	fi
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && change=1
-    fi
     if [ $changeup -ne 0 ] ; then
 	echo "Username and password may be in /etc/postfix/sasl_passwd and possibly are: ${bold}$user : $passw${offbold}"
 	echo "Is this OK?"
 	yesorno
-	[ $? -eq 0 ] && changeup=1
+	[ $? -eq 0 ] && changeup=1 || changeup=0
     fi
 fi
 if [ $change -eq 0 ] ; then
@@ -259,26 +267,22 @@ if [ $change -eq 0 ] ; then
 	echo 'Do you want outgoing email to a relayhost (the server of your provider)?'
 	yesorno
 	answ=$?
-    else
-	if [ ${#port} -eq 0 ] ; then
-	    echo "Currently your relayhost is ${bold}$rhost${offbold}"
-	else
-	    echo "Currently your relayhost is ${bold}$rhost:$port${offbold}"
-	fi
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && answ=1 || answ=0
     fi
+    [ ! -f /usr/bin/nslookup ] && zypper in -y bind-utils
     if [ $answ -eq 0 ] ; then
 	while true
 	do
 	    echo "Enter the name of the relayhost and the entry port like :"
-	    echo -n '(maybe :port is not necessary) smtp.provider.tlp:port : '
+	    echo -n '(often :port is necessary) smtp.provider.tlp:port : '
 	    read answ
 	    rhost=${answ%:*}
 	    port=${answ#*:}
 	    [ "$port" = "$rhost" ] && port=""
-	    [ ! -f /usr/bin/nslookup ] && zypper in -y bind-utils
+	    if [ "$port" = "" ] ; then
+		echo "Are you sure a port is not required?"
+		yesorno
+		[ $? -ne 0 ] && continue
+	    fi
 	    if [ $(nslookup ${rhost} | grep 'Address:' | wc -l) -eq 1 ] ; then
 		echo "The IP address of ${rhost} does not seem to exist"
 		echo "It may currenly not be available, but check your input"
@@ -291,83 +295,79 @@ if [ $change -eq 0 ] ; then
 	    fi
 	done
     fi
-    if [ "${POSTFIX_RELAYHOST:0:1}" = "[" ] ; then
-	echo "Currently postfix will NOT lookup the MX record of ${bold}${rhost}${offbold}"
-	echo "Is this OK?"
-	yesorno
-	if [ $? -ne 0 ] ; then
-	    par="[${rhost}]"
-	    [ ${#port} -ne 0 ] && par="${par}:$port"
-	else
-	    par="${rhost}:$port"
-	    [ ${#port} -ne 0 ] && par="${par}:$port"
-	fi
-    else
-	echo "Should postfix lookup the MX record of ${bold}$rhost${offbold}."
-	yesorno
-	if [ $? -ne 0 ] ; then
-	    par="[${rhost}]"
-	    [ ${#port} -ne 0 ] && par="${par}:$port"
-	else
-	    par="${rhost}"
-	    [ ${#port} -ne 0 ] && par="${par}:$port"
-	fi
-    fi
-    setpar POSTFIX_RELAYHOST "$par"
-    POSTFIX_RELAYHOST="$par"
-    if [ $changeup -eq 0 ] ; then
-	while true
-	do
-	    echo -n "Enter the username for access to $rhost, often an email address : "
-	    read answ
-	    [ ${#answ} -eq 0 ] && echo "Username can not be an empty string" && continue
-	    echo -n "Enter the password for access to $rhost : "
-	    read passw
-	    [ ${#passw} -eq 0 ] && echo "Password can not be an emptystring" && continue
-	    grep "$rhost" /etc/postfix/sasl_passwd | grep -q "$port"
-	    [ $? -eq 0 ] && sed -i "/$rhost/d" /etc/postfix/sasl_passwd
-	    echo "$par	${answ}:$passw" >> /etc/postfix/sasl_passwd
-	    break
-	done
-	setpar POSTFIX_SMTP_AUTH yes
-	POSTFIX_SMTP_AUTH="yes"
-    fi
 fi
-if [ ${#POSTFIX_RELAYHOST} -ne 0 ] ; then
-    if [ "$POSTFIX_SMTP_TLS_CLIENT" = "no" ] ; then
-	echo "Currently outgoing email will ${bold}not${offbold} be encrypted"
-    elif [ "$POSTFIX_SMTP_TLS_CLIENT" = "may" ] ; then
-	echo "Currently outgoing email ${bold}will be tried${offbold} to be encrypted"
+if [ "${POSTFIX_RELAYHOST:0:1}" = "[" ] ; then
+    echo "Currently postfix will NOT lookup the MX record of ${bold}${rhost}${offbold}"
+    echo "This is the standard."
+    echo "Is this OK?"
+    yesorno
+    if [ $? -eq 0 ] ; then
+	par="[${rhost}]"
+	[ ${#port} -ne 0 ] && par="${par}:$port"
     else
-	echo "Currently outgoing email ${bold}must${offbold} be encrypted"
+	par="${rhost}"
+	[ ${#port} -ne 0 ] && par="${par}:$port"
     fi
-    echo "Is this OK? Alternatives are: No, If possible, or Always."
+else
+    echo "Should postfix lookup the MX record of ${bold}$rhost${offbold}."
+    echo "This not the standard. Answer no will adhere to the standard."
     yesorno
     if [ $? -ne 0 ] ; then
-	echo "Three posibilities: No, If possible, or Always. If possible is recommended."
-	echo "Your choice is: No?"
-	yesorno
-	if [ $? -eq 0 ] ; then
-	    setpar POSTFIX_SMTP_AUTH no
-	    POSTFIX_SMTP_AUTH="no"
-	    setpar POSTFIX_SMTP_TLS_CLIENT no
-	    POSTFIX_SMTP_TLS_CLIENT="no"
-	else
-	    echo "Your choice is: If possible?"
-	    yesorno
-	    if [ $? -eq 0 ] ; then
-		setpar POSTFIX_SMTP_AUTH yes
-		POSTFIX_SMTP_AUTH="yes"
-		setpar POSTFIX_SMTP_TLS_CLIENT may
-		POSTFIX_SMTP_TLS_CLIENT="may"
-	    else
-		echo "So your choice is: Always."
-		setpar POSTFIX_SMTP_AUTH yes
-		POSTFIX_SMTP_AUTH="yes"
-		 setpar POSTFIX_SMTP_TLS_CLIENT yes
-		 POSTFIX_SMTP_TLS_CLIENT="yes"
-	    fi
-	fi
+	par="[${rhost}]"
+	[ ${#port} -ne 0 ] && par="${par}:$port"
+    else
+	par="${rhost}"
+	[ ${#port} -ne 0 ] && par="${par}:$port"
+    fi
+fi
+setpar POSTFIX_RELAYHOST "$par"
+POSTFIX_RELAYHOST="$par"
+if [ $changeup -eq 0 ] ; then
+    while true
+    do
+	echo -n "Enter the username for access to $rhost, often an email address : "
+	read user
+	[ ${#user} -eq 0 ] && echo "Username can not be an empty string" && continue
+	echo -n "Enter the password for access to $rhost : "
+	read passw
+	[ ${#passw} -eq 0 ] && echo "Password can not be an emptyi string" && continue
+	break
+    done
+fi
+if [ ${#rhost} -ne 0 ] ; then
+    grep "$rhost" /etc/postfix/sasl_passwd | grep -q "$port"
+    [ $? -eq 0 ] && sed -i "/$rhost/d" /etc/postfix/sasl_passwd
+    echo -e "$par\t${user}:$passw" >> /etc/postfix/sasl_passwd
+    setpar POSTFIX_SMTP_AUTH yes
+    POSTFIX_SMTP_AUTH="yes"
+fi
+
+# Originally POSTFIX_SMTP_TLS_CLIENT could have a value "must", which sets
+# smtp_tls_security_level to "encrypt". This value is only meant for special cases.
+# These special cases (in a policy table) are not supported here.
+
+if [ "$POSTFIX_SMTP_TLS_CLIENT" = "no" ] ; then
+    echo "Currently outgoing email will ${bold}not${offbold} be encrypted"
+else [ "$POSTFIX_SMTP_TLS_CLIENT" = "may" ] ; then
+    echo "Currently outgoing email ${bold}may${offbold} be encrypted"
+fi
+echo "Is this OK? The alternatives are: ${bold}not${offbold} or ${bold}may${offbold}."
+yesorno
+if [ $? -ne 0 ] ; then
+	echo "Two posibilities: No, or if possible (may)."
+    echo "Your choice is: No?"
+    yesorno
+    if [ $? -eq 0 ] ; then
+	setpar POSTFIX_SMTP_AUTH no
+	POSTFIX_SMTP_AUTH="no"
+	setpar POSTFIX_SMTP_TLS_CLIENT no
+	POSTFIX_SMTP_TLS_CLIENT="no"
+    else
+	echo "So your choice is: If possible (may)?"
+	setpar POSTFIX_SMTP_AUTH yes
+	POSTFIX_SMTP_AUTH="yes"
+	setpar POSTFIX_SMTP_TLS_CLIENT may
+	POSTFIX_SMTP_TLS_CLIENT="may"
     fi
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "no" ] ; then
@@ -646,7 +646,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 		#
 		sed -i "/127.0.0.1/a $hostip	$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
 		count=1
-		echo $HOSTNAME > /etc/hostname
+		echo "$HOSTNAME" > /etc/hostname
 		nslookup -query=AAAA smtp.$DOMAINNAME > /tmp/AAAAdomain
 		tail -1 /tmp/AAAAdomain | grep -q Address
 		[ $? -eq 0 ] &&\
@@ -654,9 +654,11 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 			&& echo "Contact the author if you have this requirement"
 		rm /tmp/AAAAdomain
 		echo "The system will reboot now to show the system name $HOSTNAME.$DOMAINNAME and please run this script again"
+		hostname -f
+		sleep 5
 		reboot
-		# a proper hostname an domain name should here be available
-		# a proper hostname an domain name should here be available
+		exit 0
+		# a proper host name and domain name should be available here
 	    else # hostname looks OK check for domain name, should be OK
 		DOMAINNAME=$(hostname -f)
 		hostname=${DOMAINNAME%%.*}
@@ -690,8 +692,8 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	    [ -e /etc/dovecot/dovecot.conf ] && zypper rm -u -y dovecot
 	    if [ ! -e /usr/lib/systemd/system/saslauthd.service ] ; then
 		zypper in -y cyrus-sasl-saslauthd cyrus-sasl-plain
-		systemctl start saslauthd.service
-		systemctl enable saslauthd.service
+		[ "$(systemctl is-active saslauthd.service)" != "active" ] && systemctl start saslauthd.service
+		[ "$(systemctl is-enabled saslauthd.service)" != "enabled" ] && systemctl enable saslauthd.service
 	    fi
 	else
 	    [ ! -e /etc/dovecot/dovecot.conf ] && zypper in -y --no-recommends dovecot
@@ -801,7 +803,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_ORGANIZATIONAL_UNIT} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your organizational unit is : $POSTFIX_SSL_ORGANIZATIONAL_UNIT"
+	echo "Your organizational unit for postfix certificate is : $POSTFIX_SSL_ORGANIZATIONAL_UNIT"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
@@ -815,46 +817,49 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	POSTFIX_SSL_ORGANIZATIONAL_UNIT="$answ"
 	break
     done
-    if [ ${#POSTFIX_SSL_CERTIFICATE_AUTHORITY} -eq 0 ] ; then
-	change=0 
-    else
-	echo "Your common name for the Certificate Authority is : $POSTFIX_SSL_CERTIFICATE_AUTHORITY"
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && change=1 || change=0
-    fi
+    change=1
+    answ="$POSTFIX_SSL_CERTIFICATE_AUTHORITY"
+    [ ${#POSTFIX_SSL_CERTIFICATE_AUTHORITY} -eq 0 ] && change=0 && answ="Certificate Authority"
+    echo -n "Your "
+    [ $change -eq 0 ] && echo -n "recommended "
+    echo "common name for the Certificate Authority is : $answ"
+    echo "Is this OK?"
+    yesorno
+    [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the common name for the Certificate Authority (recommended: Certificate Authority) : "
+	echo -n "Enter the common name for the Certificate Authority : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
-	setpar POSTFIX_SSL_CERTIFICATE_AUTHORITY "$answ"
-	POSTFIX_SSL_CERTIFICATE_AUTHORITY="$answ"
 	break
     done
-    if [ ${#POSTFIX_SSL_COMMON_NAME} -eq 0 ] ; then
-	change=0 
-    else
-	echo "Your common name for the certificate for postfix is : $POSTFIX_SSL_COMMON_NAME"
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && change=1 || change=0
-    fi
+    setpar POSTFIX_SSL_CERTIFICATE_AUTHORITY "$answ"
+    POSTFIX_SSL_CERTIFICATE_AUTHORITY="$answ"
+    change=1
+    answ="$POSTFIX_SSL_COMMON_NAME"
+    [ ${#POSTFIX_SSL_COMMON_NAME} -eq 0 ] && change=0 && answ="smtp.$DOMAINNAME"
+    echo -n "Your "
+    [ $change -eq 0 ] && echo -n "recommended "
+    echo "common name for the certificate for postfix is : $answ"
+    echo "Should be the name in the MX record for the domain."
+    echo "Is this OK?"
+    yesorno
+    [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
 	echo "Enter the common name for this certificate, should be the"
        	echo -n "name in the MX record for the domain like {mail,smtp}.$DOMAINNAME : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
-	setpar POSTFIX_SSL_COMMON_NAME "$answ"
-	POSTFIX_SSL_COMMON_NAME="$answ"
 	break
     done
+    setpar POSTFIX_SSL_COMMON_NAME "$answ"
+    POSTFIX_SSL_COMMON_NAME="$answ"
     if [ "${POSTFIX_SMTP_AUTH_SERVICE}" = "dovecot" ] ; then
 	if [ ${#DOVECOT_SSL_ORGANIZATIONAL_UNIT} -eq 0 ] ; then
-	    change=0 
+	   change=0 
 	else
-	    echo "Your common name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
+	    echo "Your organizational name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
 	    echo "Is this OK?"
 	    yesorno
 	    [ $? -eq 0 ] && change=1 || change=0
@@ -869,60 +874,62 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	    DOVECOT_SSL_ORGANIZATIONAL_UNIT="$answ"
 	    break
 	done
-	if [ ${#DOVECOT_SSL_COMMON_NAME} -eq 0 ] ; then
-	    change=0 
-	else
-	    echo "Your common name for the certificate for dovecot is : $DOVECOT_SSL_COMMON_NAME"
-	    echo "Is this OK?"
-	    yesorno
-	    [ $? -eq 0 ] && change=1 || change=0
-	fi
+	change=1
+	answ="$DOVECOT_SSL_COMMON_NAME"
+	[ ${#DOVECOT_SSL_COMMON_NAME} -eq 0 ] && change=0 && answ="imap.$DOMAINNAME"
+	echo -n "Your "
+       	[ $change -eq 0 ] && echo -n "recommended "
+	echo "common name for the certificate for dovecot is : $answ"
+	echo "Is this OK?"
+	yesorno
+	[ $? -eq 0 ] && change=1 || change=0
 	while [ $change -eq 0 ]
 	do
 	    echo "Enter the common name for this certificate, should be the name in"
-	    echo -n "the DNS for access to the imap server (recommended: imap.$DOMAINNAME) : "
+	    echo -n "the DNS for access to the imap server : "
 	    read answ
 	    [ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
-	    setpar DOVECOT_SSL_COMMON_NAME "$answ"
-	    DOVECOT_SSL_COMMON_NAME="$answ"
 	    break
 	done
+	setpar DOVECOT_SSL_COMMON_NAME "$answ"
+	DOVECOT_SSL_COMMON_NAME="$answ"
     fi
-    if [ ${#CERTIFICATE_AUTHORITY_EMAIL_ADDRESS} -eq 0 ] ; then
-	change=0 
-    else
-	echo "The email address of the Certificate Authority is : $CERTIFICATE_AUTHORITY_EMAIL_ADDRESS"
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && change=1 || change=0
-    fi
+    change=1
+    answ="$CERTIFICATE_AUTHORITY_EMAIL_ADDRESS"
+    [ ${#CERTIFICATE_AUTHORITY_EMAIL_ADDRESS} -eq 0 ] && change=0 && answ="ca@$DOMAINNAME"
+    echo -n "The "
+    [ $change -eq 0 ] && echo -n "recommended "
+    echo "email address of the Certificate Authority is : $answ"
+    echo "Is this OK?"
+    yesorno
+    [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the email address of the Certificate Authority (recommended ca@$DOMAINNAME) : "
+	echo -n "Enter the email address of the Certificate Authority : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
-	setpar CERTIFICATE_AUTHORITY_EMAIL_ADDRESS "$answ"
-	CERTIFICATE_AUTHORITY_EMAIL_ADDRESS="$answ"
 	break
     done
-    if [ ${#POSTFIX_SSL_EMAIL_ADDRESS} -eq 0 ] ; then
-	change=0 
-    else
-	echo "The email address in your certificate is : $POSTFIX_SSL_EMAIL_ADDRESS"
-	echo "Is this OK?"
-	yesorno
-	[ $? -eq 0 ] && change=1 || change=0
-    fi
+    setpar CERTIFICATE_AUTHORITY_EMAIL_ADDRESS "$answ"
+    CERTIFICATE_AUTHORITY_EMAIL_ADDRESS="$answ"
+    change=1
+    anw="$POSTFIX_SSL_EMAIL_ADDRESS"
+    [ ${#POSTFIX_SSL_EMAIL_ADDRESS} -eq 0 ] && change=0 && answ="postmaster@$DOMAINNAME"
+    echo -n "The "
+    [ $change -eq 0 ] && echo -n "recommended "
+    echo "email address in your certificate is : $answ"
+    echo "Is this OK?"
+    yesorno
+    [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
-	echo "Enter the email address for the certificate of the"
-       	echo -n "email server (recommended postmaster@$DOMAINNAME) : "
+	echo -n "Enter the email address for the certificate of the email server : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
-	setpar POSTFIX_SSL_EMAIL_ADDRESS "$answ"
-	POSTFIX_SSL_EMAIL_ADDRESS="$answ"
 	break
     done
+    setpar POSTFIX_SSL_EMAIL_ADDRESS "$answ"
+    POSTFIX_SSL_EMAIL_ADDRESS="$answ"
 fi
 # Set POSTFIX_LOCALDOMAINS needs some previous parameters
 change=1
@@ -935,7 +942,7 @@ if [ -n "$POSTFIX_LOCALDOMAINS" ] ; then
     do
 	[ $(echo "$POSTFIX_LOCALDOMAINS" | egrep -q "^${local},") -o \
 		$(echo "$POSTFIX_LOCALDOMAINS" | grep -q " ${local},") ] && continue
-	echo "Apparently the parameter POSTFIX_LOCALDOMAINS does not contain $local"
+	echo "Apparently the parameter POSTFIX_LOCALDOMAINS does not contain '$local'"
 	echo "This parameter will be reset trying to use previous values"
 	change=0
     done
@@ -950,7 +957,7 @@ if [ -n "$POSTFIX_LOCALDOMAINS" ] ; then
     if [ $change -eq 1 ] ;then
 	echo "Is this all OK?"
 	yesorno
-	[ $? -ne 0 ] change=0
+	[ $? -ne 0 ] && change=0
     fi
     addedvalues=${POSTFIX_LOCALDOMAINS#* localhost,}
 fi
@@ -1045,28 +1052,32 @@ fi
 # Support for checking on DKIM information and generating DKIM signing
 #
 if [ "$USE_AMAVIS" = "yes" ] ; then
-    if [ "$USE_DKIM" = "no" ] ; then
+    if [ "$USE_DKIM" = "no" -o "$USE_DKIM" = "" ] ; then
 	echo "Currently DKIM support has not been enabled"
 	echo "Do you want to enable any DKIM support"
 	yesorno
 	if [ $? -eq 0 ] ; then
 		while true ; do
-		    echo -n "Enter A (DKIM support from Amavis) or O (DKIM support fron openDKIM)"
+		    echo -n "Enter A (DKIM support from Amavis) or O (DKIM support from openDKIM): "
 		    read answ
 		    case $answ in
-			"A"|"a" ) setparm USE_DKIM yes
+			"A"|"a" ) setpara USE_DKIM yes
 				  USE_DKIM="yes"
+				  [ -f /usr/sbin/opendikim ] && zypper rm -y opendkim
 				  break ;;
-			"O"|"o" ) setparm USE_DKIM openDKIM
+			"O"|"o" ) setpara USE_DKIM openDKIM
 				  USE_DKIM="openDKIM"
+			 	  [ ! -f /usr/sbin/opendikim ] && zypper in -y opendkim
 				  break ;;
 			*	) echo "Please answer A or O" ;;
 		    esac
 		done
 	fi
     else
-	[ "$USE_DKIM" = "yes" ] && echo "Currently DKIM support with Amavis has been enabled"
-	[ "$USE_DKIM" = "openDKIM" ] && echo "Currently DKIM support with openDKIM has been enabled"
+	[ "$USE_DKIM" = "yes" ] && echo "Currently DKIM support with Amavis has been enabled" && \
+	    echo "The alternative is openDKIM or none, asked for with answer no."
+	[ "$USE_DKIM" = "openDKIM" ] && echo "Currently DKIM support with openDKIM has been enabled" && \
+	    echo "The alternative is DKIM support in Amavis or none, asked for with answer no."
         echo "Is this OK?"
         yesorno
         if [ $? -ne 0 ] ; then
@@ -1074,14 +1085,17 @@ if [ "$USE_AMAVIS" = "yes" ] ; then
 		echo -n "Enter N (no), A (Amavis) or O (openDKIM) support for DKIM: "
 		read answ
 		case $answ in
-		    "N"|"n" ) setparm USE_DKIM no
+		    "N"|"n" ) setpara USE_DKIM no
 			      USE_DKIM="no"
+			      [ -f /usr/sbin/opendikim ] && zypper rm -y opendkim
 			      break ;;
-		    "A"|"a" ) setparm USE_DKIM yes
+		    "A"|"a" ) setpara USE_DKIM yes
 			      USE_DKIM="yes"
+			      [ -f /usr/sbin/opendikim ] && zypper rm -y opendkim
 			      break ;;
-		    "O"|"o" ) setparm USE_DKIM openDKIM
+		    "O"|"o" ) setpara USE_DKIM openDKIM
 			      USE_DKIM="openDKIM"
+			      [ ! -f /usr/sbin/opendikim ] && zypper in -y opendkim
 			      break ;;
 		    *	    ) echo "Please answer N or A or O" ;;
 		esac
@@ -1089,15 +1103,35 @@ if [ "$USE_AMAVIS" = "yes" ] ; then
         fi
     fi
 else
-    setparm USE_DKIM no
+    setpara USE_DKIM no
     USE_DKIM="no"
 fi
 if [ "${USE_DKIM}" = "openDKIM" ] ; then
-   setpar POSTFIX_DKIM_CONN socket
-   POSTFIX_DKIM_CONN="socket"
-else
-    setpar POSTFIX_DKIM_CONN tcp
-    POSTFIX_DKIM_CONN="tcp"
+    if [ "$POSTFIX_DKIM_CONN" = "" -o "$POSTFIX_DKIM_CONN" = "socket" ] ; then
+	echo "Currently openDKIM will listen on socket /var/run/opendkim/opendkim.socket"
+	echo "The alternative is to listen on localhost port 8891"
+	echo "Is the current setting OK?"
+	yesorno
+	if [ $? -eq 0 ] ; then
+	    setpar POSTFIX_DKIM_CONN socket
+	    POSTFIX_DKIM_CONN="socket"
+	else
+	    setpar POSTFIX_DKIM_CONN tcp
+	    POSTFIX_DKIM_CONN="tcp"
+	fi
+    else
+	echo "Currently openDKIM will listen on localhost port 8891"
+	echo "The alternative is to listen on socket /var/run/opendkim/opendkim.socket"
+        echo "Is the current setting OK?"
+        yesorno
+        if [ $? -eq 0 ] ; then
+            setpar POSTFIX_DKIM_CONN tcp
+            POSTFIX_DKIM_CONN="tcp"
+        else
+            setpar POSTFIX_DKIM_CONN socket
+            POSTFIX_DKIM_CONN="socket"
+        fi
+    fi
 fi
 #
 # Support for checking with DMARC
@@ -1166,6 +1200,8 @@ EOF
 		newaliases
 	    fi
 	fi
+	[ "$(systemctl is-enabled opendmarc.service)" != "enabled" ] && systemctl enable opendmarc.service
+	[ "$(systemctl is-active opendmarc.service)" != "active" ] && systemctl start opendmarc.service
     else
 	if [ -e /etc/opendmarc.conf ] ; then
 	    if [ -e /etc/zypp/repos.d/server-mail.repo ] ; then

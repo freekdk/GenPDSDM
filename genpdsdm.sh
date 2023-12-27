@@ -57,6 +57,11 @@ exitmsg() {
 dlog() {
     [ $debug -eq 1 ] && echo "$1" >> /etc/genpdsdm/genpdsdm.log
 }
+grep -q "Tumbleweed" /etc/os-release && OS="openSUSE_Tumbleweed"
+grep -q "Leap 15.5" /etc/os-release && OS="15.5"
+grep -q "raspbian" /etc/os-release && OS="raspbian"
+grep '^ID=' /etc/os-release
+[ "$OS" = "" ] && exitmsg "Only openSUSE Tumbleweed, Leap 15.5 and Raspbian are supported"
 #
 # /etc/genpdsdm/genpdsdm.log keeps track of what has been done during running the script
 # /etc/genpdsdm/genpdsdm.history keeps the history of already executed parts of this script
@@ -102,39 +107,45 @@ fi
 #
 dlog "== Starting Installation =="
 if [ -z "${INSTALLATION_done}" ] ; then
-    # Check if this a clean system
-    if [ -e /etc/zypp/repos.d/postfix-policyd-spf-perl.repo ] ; then
-        exitmsg "This is not a clean installed system with only a few required additions\n\
+    if [ $OS != raspbian ] ; then 
+	# Check if this a clean system
+	if [ -e /etc/zypp/repos.d/postfix-policyd-spf-perl.repo ] ; then
+            exitmsg "This is not a clean installed system with only a few required additions\n\
 Please start with a fresh installation on the boot device. Removing,\n\
 first, the 5 involved packages and the non-standard repositories is\n\
 also possible."
-    fi
-    grep -q "Tumbleweed" /etc/os-release && os="openSUSE_Tumbleweed"
-    grep -q "Leap 15.5" /etc/os-release && os="15.5"
-    [ "$os" = "openSUSE_Tumbleweed" ] && zypper dup -y
-    [ "$os" = "15.5" ] && zypper up -y
-    [ "$os" = "" ] && exitmsg "Only openSUSE Tumbleweed and Leap 15.5 are supported"
-    zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
-	lz4 p7zip-full rzsz clamav bind-utils
-    zypper in  -y --recommends amavisd-new
-    if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
-	zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$os/ postfix-policyd-spf-perl
-	zypper in -y postfix-policyd-spf-perl
-	# disable repository for not having conflicts during updates
-	zypper mr -d postfix-policyd-spf-perl
-    fi
-    if [ ! -e /etc/zypp/repos.d/mail-server ] ; then
-	zypper ar https://download.opensuse.org/repositories/server:/mail/$os/ server-mail
-	zypper in -y opendmarc
-	# disable repository for not having conflicts during updates
-        zypper mr -d server-mail
-        mkdir -p /etc/opendmarc
-	if [ ! -e /etc/opendmarc/ignore.hosts ] ; then
-	    touch /etc/opendmarc/ignore.hosts
-	    chown opendmarc:opendmarc /etc/opendmarc/ignore.hosts
-	    chmod 644 /etc/opendmarc/ignore.hosts
 	fi
+	[ "$OS" = "openSUSE_Tumbleweed" ] && zypper dup -y
+	[ "$OS" = "15.5" ] && zypper up -y
+	zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
+	    lz4 p7zip-full rzsz clamav bind-utils
+	zypper in  -y --recommends amavisd-new
+	if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
+	    zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$os/ postfix-policyd-spf-perl
+	    zypper in -y postfix-policyd-spf-perl
+	    # disable repository for not having conflicts during updates
+	    zypper mr -d postfix-policyd-spf-perl
+	fi
+	if [ ! -e /etc/zypp/repos.d/mail-server ] ; then
+	    zypper ar https://download.opensuse.org/repositories/server:/mail/$os/ server-mail
+	    zypper in -y opendmarc
+	    # disable repository for not having conflicts during updates
+            zypper mr -d server-mail
+            mkdir -p /etc/opendmarc
+	    if [ ! -e /etc/opendmarc/ignore.hosts ] ; then
+		touch /etc/opendmarc/ignore.hosts
+		chown opendmarc:opendmarc /etc/opendmarc/ignore.hosts
+		chmod 644 /etc/opendmarc/ignore.hosts
+	    fi
+	fi
+    else
+	apt-get -y update
+	apt-get -y upgrade
+	debconf-set-selections postfixsettings.txt
+	apt-get -y install postfix amavisd-new dovecot-imapd postfix-policyd-spf-perl opendkim spamassassin
+	exit
     fi
+    exit
     # postfix needs to be initialized to obtain a standard situation for this script
     systemctl start postfix.service
     systemctl enable postfix.service

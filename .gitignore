@@ -7,3 +7,6 @@ postfix
 master.cf
 postfix-master.cf.patch
 vernpdadsd.sh
+koppelingen.txt
+postfix.ymp
+postfixsettings.txt
