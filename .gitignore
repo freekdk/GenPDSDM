@@ -10,3 +10,9 @@ vernpdadsd.sh
 koppelingen.txt
 postfix.ymp
 postfixsettings.txt
+beelaertsict.nl.dkim20230908.pem
+beelaertsict.nl.dkim20230908.txtrecord
+postfix.ymp
+sysconfig.mail.sav
+sysconfig.postfix.sav
+.~lock.genmailmodule.odt#

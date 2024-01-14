@@ -194,7 +194,7 @@ mkchroot(){
       fi
 
       if [ "${POSTFIX_DKIM_CONN,,}" == "socket" -a \
-          "${USE_DKIM,,}" = "openDKIM" ]; then
+          "${USE_DKIM}" = "openDKIM" ]; then
           if [[ ! -d ${CHR_DKIM_SOCKET_DIR} ]]; then
             mkdir -p ${CHR_DKIM_SOCKET_DIR}
           fi
@@ -241,7 +241,7 @@ mkchroot(){
       fi
 
       # sync our ssl DIR if SSL is enabled (at least one service)
-      ## POSTFIX_SMTP_TLS_SERVER="yes" or POSTFIX_SMTP_TLS_CLIENT="yes|must"
+      ## POSTFIX_SMTP_TLS_SERVER="yes" or POSTFIX_SMTP_TLS_CLIENT="yes"
       if [ "$(echo "$POSTFIX_SMTP_TLS_SERVER" | tr 'A-Z' 'a-z' )" != "no" -o \
           "$(echo "$POSTFIX_SMTP_TLS_CLIENT" | tr 'A-Z' 'a-z' )" != "no" ]; then
 
@@ -324,6 +324,7 @@ gen_main_cf(){
     export POSTFIX_RELAY_DOMAINS
     export POSTFIX_RELAY_RECIPIENTS
     export POSTFIX_BACKUPMX
+    export POSTFIX_DMARC_CHECKS
     export DEF_DB_TYPE
     MCF_DIR=$TMPDIR
     export MCF_DIR
@@ -614,7 +615,6 @@ using \"off\" instead!"
         $PCONF -e "smtp_sasl_auth_enable = yes"
 	[ -z "$POSTFIX_SMTP_AUTH_OPTIONS" ] && POSTFIX_SMTP_AUTH_OPTIONS="noanonymous"
         $PCONF -e "smtp_sasl_security_options = $POSTFIX_SMTP_AUTH_OPTIONS"
-	$PCONF -e "smtp_sasl_security_options = $POSTFIX_SMTP_AUTH_OPTIONS"
         $PCONF -e "smtp_sasl_password_maps = $DEF_DB_TYPE:/etc/postfix/sasl_passwd"
     else
         $PCONF -e "smtp_sasl_auth_enable = no"
@@ -750,10 +750,10 @@ using \"off\" instead!"
 #	    $PCONF -e "smtp_tls_protocols = >=TLSv1, <=TLSv1.3"
 #    fi
 #    Removed: "encrypt" is not meant to be used in main.cf
-    if test "$POSTFIX_SMTP_TLS_CLIENT" = "yes" -o "$POSTFIX_SMTP_TLS_CLIENT" = "must" ; then
-	if [[ "${POSTFIX_SMTP_AUTH}" = 'yes' ]]; then
-	    $PCONF -e "smtp_tls_security_level = encrypt"
-	fi
+    if test "$POSTFIX_SMTP_TLS_CLIENT" = "yes" ; then
+	# if [[ "${POSTFIX_SMTP_AUTH}" = 'yes' ]]; then
+	#     $PCONF -e "smtp_tls_security_level = encrypt"
+	# fi
 	if [ -n "$POSTFIX_TLS_CAFILE" -a -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE" ]; then
 	    $PCONF -e "smtp_tls_CAfile = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE"
 	fi
@@ -790,7 +790,7 @@ using \"off\" instead!"
 	$PCONF -e "smtp_tls_key_file ="
 	$PCONF -e "smtp_tls_session_cache_database ="
     fi
-    [ "$SPF_CHECKS" = "yes" ] && $PCONF -e "policyd-spf_time_limit = 3600"
+    [ "$POSTFIX_SPF_CHECKS" = "yes" ] && $PCONF -e "policyd-spf_time_limit = 3600"
 
     ALLMAPS="$DEF_DB_TYPE:/etc/aliases"
     for i in $(get_alias_maps); do
@@ -844,6 +844,8 @@ my $pf_relay_domains = $ENV{POSTFIX_RELAY_DOMAINS};
 
 my $pf_relay_recipients = $ENV{POSTFIX_RELAY_RECIPIENTS};
 
+my $dmarc_checks = $ENV{POSTFIX_DMARC_CHECKS};
+
 my $def_db_type = $ENV{DEF_DB_TYPE};
 
 open(MNCF,"<$mncf") || die "unable to open $mncf: $!";
@@ -852,137 +854,138 @@ while( <MNCF> ) {
     chomp;
 
    if( /^\#?(smtpd_milters\s=.*)/ ) {
-     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
-       $line = "#".$1;
-     } else {
-       $line = "#".$1;
-     }
-   } elsif( /^\#?(non_smtpd_milters\s=.*)/ ) {
-     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
-       $line = "#".$1;
-     } else {
-       $line = "#".$1;
-     }
-   } elsif( /^\#?(milter_default_action\s=.*)/ ) {
-     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
-       $line = "#".$1;
-     } else {
-       $line = $1;
-     }
-   } elsif( /^\#?(milter_protocol\s=.*)/ ) {
-     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
-       $line = "#".$1;
-     } else {
-       $line = $1;
-     }
-   } elsif( /\#?(virtual_alias_maps\s=\s).*/ ) {
-          if ($with_mysql ne "yes" && $with_ldap ne "yes") {
-                $line = $1."$def_db_type:/etc/postfix/virtual";
-          } elsif ($with_ldap eq "yes" && $with_mysql ne "yes") {
-                $line = $1."$def_db_type:/etc/postfix/virtual ldap:/etc/postfix/ldap_aliases.cf";
-          } elsif ($with_mysql eq "yes" && $with_ldap ne "yes") {
-                $line = $1."$def_db_type:/etc/postfix/virtual mysql:/etc/postfix/mysql_virtual_alias_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_catchall_maps.cf";
-          } elsif ($with_mysql eq "yes" && $with_ldap eq "yes") {
-                $line = $1."$def_db_type:/etc/postfix/virtual ldap:/etc/postfix/ldap_aliases.cf mysql:/etc/postfix/mysql_virtual_alias_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_catchall_maps.cf";
-	  }
-	} elsif( /\#?(virtual_uid_maps\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_gid_maps\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_minimum_uid\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_base\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_domains\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_limit\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_maps\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_transport\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_limit_maps\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_mailbox_limit_override\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_maildir_limit_message\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /\#?(virtual_overquota_bounce\s=.*)/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = "#".$1;
-	  } else {
-		$line = $1;
-	  }
-	} elsif ( /^(relay_domains\s=\s).*/ ) {
-	  if ($with_mysql ne "yes") {
-		$line = $1."\$mydestination $def_db_type:/etc/postfix/relay $pf_relay_domains";
-	  } else {
-		$line = $1."\$mydestination $def_db_type:/etc/postfix/relay mysql:/etc/postfix/mysql_relay_domains_maps.cf $pf_relay_domains";
-	  }
-	} elsif ( /^(relay_recipient_maps\s=\s).*/ ) {
-	  if ($is_backupmx ne "yes") {
-		$line = $1."$def_db_type:/etc/postfix/relay_recipients";
-	  } elsif ($with_mysql ne "yes") {
-		$line = $1."$def_db_type:/etc/postfix/relay_recipients";
-	  } elsif ($with_mysql eq "yes") {
-		$line = $1."$def_db_type:/etc/postfix/relay_recipients mysql:/etc/postfix/mysql_relay_recipient_maps.cf $pf_relay_recipients";
-	  } else {
-		$line = $1."$def_db_type:/etc/postfix/relay_recipients $pf_relay_recipients";
-	  }
+	if ($use_dkim ne "opendkim" and $dmarc_checks ne "yes") {
+	    $line = "#".$1;
 	} else {
-		$line = $_;
+	    $line = "#".$1;
 	}
+   } elsif( /^\#?(non_smtpd_milters\s=.*)/ ) {
+	if ($use_dkim ne "opendkim" and $dmarc_checks ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = "#".$1;
+	}
+   } elsif( /^\#?(milter_default_action\s=.*)/ ) {
+	if ( $use_dkim ne "opendkim" and $dmarc_checks ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+# default should be OK
+#   } elsif( /^\#?(milter_protocol\s=.*)/ ) {
+#     if ($use_dkim ne "yes" or $use_dkim ne "opendkim") {
+#       $line = "#".$1;
+#     } else {
+#       $line = $1;
+#     }
+   } elsif( /\#?(virtual_alias_maps\s=\s).*/ ) {
+       	if ($with_mysql ne "yes" && $with_ldap ne "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/virtual";
+       	} elsif ($with_ldap eq "yes" && $with_mysql ne "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/virtual ldap:/etc/postfix/ldap_aliases.cf";
+       	} elsif ($with_mysql eq "yes" && $with_ldap ne "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/virtual mysql:/etc/postfix/mysql_virtual_alias_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_catchall_maps.cf";
+       	} elsif ($with_mysql eq "yes" && $with_ldap eq "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/virtual ldap:/etc/postfix/ldap_aliases.cf mysql:/etc/postfix/mysql_virtual_alias_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_maps.cf mysql:/etc/postfix/mysql_virtual_alias_domain_catchall_maps.cf";
+	}
+    } elsif( /\#?(virtual_uid_maps\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_gid_maps\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_minimum_uid\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_base\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_domains\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_limit\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_maps\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_transport\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_limit_maps\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_mailbox_limit_override\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_maildir_limit_message\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /\#?(virtual_overquota_bounce\s=.*)/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = "#".$1;
+	} else {
+	    $line = $1;
+	}
+    } elsif ( /^(relay_domains\s=\s).*/ ) {
+	if ($with_mysql ne "yes") {
+	    $line = $1."\$mydestination $def_db_type:/etc/postfix/relay $pf_relay_domains";
+	} else {
+	    $line = $1."\$mydestination $def_db_type:/etc/postfix/relay mysql:/etc/postfix/mysql_relay_domains_maps.cf $pf_relay_domains";
+	}
+    } elsif ( /^(relay_recipient_maps\s=\s).*/ ) {
+	if ($is_backupmx ne "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/relay_recipients";
+	} elsif ($with_mysql ne "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/relay_recipients";
+	} elsif ($with_mysql eq "yes") {
+	    $line = $1."$def_db_type:/etc/postfix/relay_recipients mysql:/etc/postfix/mysql_relay_recipient_maps.cf $pf_relay_recipients";
+	} else {
+	    $line = $1."$def_db_type:/etc/postfix/relay_recipients $pf_relay_recipients";
+	}
+    } else {
+	$line = $_;
+    }
 
-	if( $line =~ /^\#/ ) {
-		print $line."\n";
-	next;
-	} 
-
+    if( $line =~ /^\#/ ) {
 	print $line."\n";
+	next;
+    } 
+
+    print $line."\n";
 
 }' > $TMPDIR/new.cf
 
@@ -1068,15 +1071,16 @@ close(OUT);
 '
 	host=${FQHOSTNAME%%.*}
 	domain=${FQHOSTNAME#*.}
-	mkdir -p /etc/dkim
+	mkdir -p /var/db/dkim
 	if [ "${USE_DKIM}" = "yes" ] ; then
-	    if [ $(ls /etc/dkim/${domain}.dkim*.pem 2>/dev/null | wc -l) -eq 0 ] ; then
+	    if [ $(ls /var/db/dkim/${domain}.dkim*.pem 2>/dev/null | wc -l) -eq 0 ] ; then
 		date=$(date --date=now +%Y%m%d)
-		amavisd -c /tmp/amavisd.conf genrsa /etc/dkim/${domain}.dkim${date}.pem 2048
-		chmod 640 /etc/dkim/${domain}.dkim${date}.pem
-		chown root:vscan /etc/dkim/${domain}.dkim${date}.pem
+		mkdir -p /var/db/dkim
+		amavisd -c /tmp/amavisd.conf genrsa /var/db/dkim/${domain}.dkim${date}.pem 2048
+		chmod 640 /var/db/dkim/${domain}.dkim${date}.pem
+		chown root:vscan /var/db/dkim/${domain}.dkim${date}.pem
 	    else
-		date=$(ls /etc/dkim/${domain}.dkim*.pem | tail -1)
+		date=$(ls /var/db/dkim/${domain}.dkim*.pem | tail -1)
 		date=${date%.pem}
 		date=${date##*dkim}
 	    fi
@@ -1085,7 +1089,7 @@ close(OUT);
 dkim_key(
    '${domain}',
    'dkim${date}',
-   '/etc/dkim/${domain}.dkim${date}.pem'
+   '/var/db/dkim/${domain}.dkim${date}.pem'
    );
  @dkim_signature_options_bysender_maps = ( {
    "${domain}" => {
@@ -1096,8 +1100,8 @@ dkim_key(
      }
    } );
 EOF
-	    [ ! -e /etc/dkim/${domain}.dkim${date}.txtrecord ] && \
-		amavisd -c /tmp/amavisd.conf showkeys > /etc/dkim/${domain}.dkim${date}.txtrecord
+	    [ ! -e /var/db/dkim/${domain}.dkim${date}.txtrecord ] && \
+		amavisd -c /tmp/amavisd.conf showkeys > /var/db/dkim/${domain}.dkim${date}.txtrecord
 	fi
     fi
 }
@@ -1110,8 +1114,8 @@ gen_opendkim(){
 	exit 1
     fi
     cfolder="$(pwd)"
-    mkdir -p /etc/dkim
-    cd /etc/dkim
+    mkdir -p /var/db/dkim
+    cd /var/db/dkim
     dkimfile=$(ls $domain.dkim*.pem 2>/dev/null | head -1)
     if [ "$dkimfile" = "" ] ; then
 	date=$(date --date=now +%Y%m%d)
@@ -1126,15 +1130,16 @@ gen_opendkim(){
     cd $cfolder
     grep -q -E "^# Mode[[:blank:]]+sv$" /etc/opendkim/opendkim.conf
     if [ $? -eq 0 ] ; then
+	[ "$POSTFIX_DKIM_CONN" != "socket" ] && socketodk="inet:8891@localhost" || socketodk="local:/run/opendkim/opendkim.socket"
 	cat <<EOF > /tmp/sedscript.txt
 /^# Mode[[:blank:]]+sv$/ s/^# //
-/^Socket[[:blank:]]+/ c\Socket   inet:8891@localhost
+/^Socket[[:blank:]]+/ c\Socket   $socketodk
 /^# ReportAddress[[:blank:]]+/ c\ReportAddress    "Postmaster $domain" <postmaster@$domain>
 /^# SoftwareHeaders[[:blank:]]+/ c\SoftwareHeaders    yes
 /^# Canonicalization[[:blank:]]+/ c\Canonicalization  relaxed/simple
 /^# Domain[[:blank:]]+/ c\Domain    $domain
 /^Selector[[:blank:]]+/ c\Selector  dkim$date
-/^# KeyFile[[:blank:]]+/ c\KeyFile   /etc/dkim/$domain.dkim$date.pem
+/^# KeyFile[[:blank:]]+/ c\KeyFile   /var/db/dkim/$domain.dkim$date.pem
 /^# OverSignHeaders[[:blank:]]+/ c\OverSignHeaders   From
 /^# ExternalIgnoreList[[:blank:]]+/ c\ExternalIgnoreList refile:/etc/opendkim/TrustedHosts
 /^# InternalHosts[[:blank:]]+/ c\InternalHosts refile:/etc/opendkim/TrustedHosts
@@ -1144,11 +1149,11 @@ EOF
 	sed -r -i -f /tmp/sedscript.txt /etc/opendkim/opendkim.conf
 	rm /tmp/sedscript.txt
 	grep -q -E "^Statistics[[:blank:]]+" /etc/opendkim/opendkim.conf
-	[ $? -ne 0 ] && echo "Statistics  /var/spool/opendkim/stats.dat" >> /etc/opendkim/opendkim.conf
+	[ $? -ne 0 ] && echo -e "Statistics\t/var/spool/opendkim/stats.dat" >> /etc/opendkim/opendkim.conf
 	mkdir -p /var/spool/opendkim
-	echo -e "127.0.01\nlocalhost\n\n*.$domain" > /etc/opendkim/TrustedHosts
+	echo -e "127.0.0.1\n::1\nlocalhost\n*.$domain" > /etc/opendkim/TrustedHosts
     fi
-    [ "$(systemctl is-enabled opendkim.service)" != "enabled" ] && systemctl enable opendkim.service
+    [ "$(systemctl is-enabled opendkim.service)" != "enabled" ] && systemctl enable opendkim.service > /dev/null
     [ "$(systemctl is-active opendkim.service)" != "active" ] && systemctl start opendkim.service || \
 	systemctl restart opendkim.service
 }
@@ -1217,7 +1222,7 @@ open(MCF,"<$mcf") || die "unable to open $mcf: $!";
 while( <MCF> ) {
     chomp;
 
-    if( /^\#?\s*(smtp\s+inet.*?smtpd)/ ) {
+    if( /^\#?\s(smtp\s+inet.*?smtpd)/ ) {
 	if( defined $normalize->{$1} ) { next; } else { $normalize->{$1} = 1; }
 	if ($nullclient eq "yes") {
 	    $line = "#".$1;
@@ -1231,31 +1236,47 @@ while( <MCF> ) {
 	    $line =~ /(\#?\s*smtp\s+inet\s+[yn-]?\s+[yn-]?\s+[yn-]?\s+[0-9?yn-]?\s+)[0-9-]+(.*)/;
 	    $line = $1."-".$2;
 	}
-    } elsif ( /^\#?(\s*-o smtpd_relay_restrictions=check_policy_service.*)/ ) {
+    } elsif ( /^\#?(\s-o smtpd_relay_restrictions=check_policy_service.*)/ ) {
 	if ( $spfchecks eq "yes" ) {
 	    $line =  $1;
 	} else {
 	    $line = "#".$1;
 	}
-    } elsif ( /^\#?(\s*-o smtpd_milters=inet:127\.0\.0\.1:)/ ) {
-	if ( $usedkim eq "opendkim" ) {
-	    $line = $1."8891";
+    } elsif ( /^\#?(\s-o smtpd_milters=).*/ ) {
+	if ( $usedkim eq "opendkim" and not $dmarcchecks eq "yes" ) {
+	    if ( $dkimconn eq "tcp" ) {
+		$line = $1."inet:127.0.0.1:8891";
+	    } else {
+		$line = $1."local:/run/opendkim/opendkim/socket";
+	    }
 	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
-	    $line = $1."8891,inet:127.0.0.1:8893";
+	    if ( $dkimconn eq "tcp" ) {
+		$line = $1."inet:127.0.0.1:8891,inet:127.0.0.1:8893";
+	    } else {
+		$line = $1."local:/run/opendkim/opendkim/socket,inet:127.0.0.1:8893";
+	    }
 	} elsif ( $dmarcchecks eq "yes" ) {
-	    $line = $1."8893";
+	    $line = $1."inet:127.0.0.1:8893";
 	} else {
-	    $line = "#".$1."8891";
+	    $line = "#".$1."inet:127.0.0.1:8891";
 	}
-    } elsif ( /^\#?(\s*-o non_smtpd_milters=inet:127\.0\.0\.1:)/ ) {
+    } elsif ( /^\#?(\s-o non_smtpd_milters=)inet:127\.0\.0\.1:/ ) {
 	if ( $usedkim eq "opendkim" ) {
-	    $line = $1."8891";
+	    if ( $dkimconn eq "tcp" ) {
+		$line = $1."inet:127.0.0.1:8891";
+	    } else {
+		$line = $1."local:/run/opendkim/opendkim/socket"
+	    }
 	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
-	    $line = $1."8891,inet:127.0.0.1:8893";
+	    if ( $dkimconn eq "tcp" ) {
+		$line = $1."8891,inet:127.0.0.1:8893";
+	    } else {
+		$line = $1."local:/run/opendkim/opendkim.socket,inet:127.0.0.1:8893";
+	    }
 	} elsif ( $dmarcchecks eq "yes" ) {
-	    $line = $1."8893";
+	    $line = $1."inet:127.0.0.1:8893";
 	} else {
-	    $line = "#".$1."8891";
+	    $line = "#".$1."inet:127.0.0.1:8891";
 	}
     ## amavis
     } elsif( /^\#?\s*(amavis\s+unix.*)/ ) {
@@ -1499,7 +1520,7 @@ while( <MCF> ) {
 	} else {
 	    $line = "  ".$1;
 	}
-   } elsif ( /^\#?\s\s(-o\s+smtpd_data_restrictions=.*)/) {
+    } elsif ( /^\#?\s\s(-o\s+smtpd_data_restrictions=.*)/) {
 	if ( $use_amavis ne "yes" ) {
 	    $line = "#  ".$1;
 	} else {
@@ -1810,7 +1831,7 @@ EOF
     sed -i -f /tmp/sedscript.txt /etc/dovecot/conf.d/10-mail.conf
     rm /tmp/sedscript.txt
 fi
-[ $(systemctl is-enabled dovecot.service) != "enabled" ] && systemctl enable dovecot.service
+[ $(systemctl is-enabled dovecot.service) != "enabled" ] && systemctl enable dovecot.service > /dev/null
 [ $(systemctl is-active dovecot.service) != "active" ] && systemctl start dovecot.service
 }
 
@@ -1854,10 +1875,10 @@ if [ -x /usr/sbin/amavisd ]; then
 #	[ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
 #	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
 #	sleep 5
-	[ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service
+	[ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service > /dev/null
 	[ "$(systemctl is-active clamd.service)" != "active" ] && systemctl start clamd.service
 	sleep 5
-	[ "$(systemctl is-enabled amavis.service)" != "enabled" ] && systemctl enable amavis.service
+	[ "$(systemctl is-enabled amavis.service)" != "enabled" ] && systemctl enable amavis.service > /dev/null
 	sa-update
 	[ "$(systemctl is-active amavis.service)" != "active" ] && systemctl start amavis.service
     fi
@@ -1901,7 +1922,7 @@ if [ "$POSTFIX_SMTP_AUTH_SERVICE" == "dovecot" ] ; then
     gen_dovecot_cf
     if [ !  -e /etc/dovecot/dh.pem ] ; then
 	echo "Dovecot needs a file /etc/dovecot/dh.pem which does not exists."
-	echo "It takes quite some time to generate, so this will be done in subprocess."
+	echo "It takes quite some time to generate, so this will be done in a detached subprocess."
 	echo "Do NOT stop the computer until it is finished!!!!"
 	openssl dhparam -out /etc/dovecot/dh.pem 4096 > /dev/null 2>&1 &
 	echo "The process ID is: $!"
@@ -1924,6 +1945,6 @@ if test -z "$r" && test "$POSTFIX_UPDATE_MAPS" == yes ; then
 	fi
     done
 
-    # Only reload when service is actually running
-    /usr/sbin/postfix status 2> /dev/null && /usr/sbin/postfix reload > /dev/null 2>&1
+    # Only restart (reload may fail) when service is actually running
+    [ "$(systemctl is-active postfix.service)" = "active" ] && systemctl restart postfix.service
 fi

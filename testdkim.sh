@@ -6,13 +6,13 @@ echo "Script to test generation of DKIM item in outgoing email via submission po
 echo "It needs the domain name you used to generate the DKIM certificate,"
 echo "the user name of a user on this system and its password. You will be prompted"
 echo "for these values. The password will not be visible. The destination of the"
-echo "message is the user where messages for root are directed to.
-echo
+echo "message is the user where messages for root are directed to."
+echo ""
 echo "==================="
-echo
+echo ""
 echo -n "Enter the domain name: "
 read domain
-echo
+echo ""
 echo -n "Enter the user name: "
 read username
 echo
@@ -27,7 +27,7 @@ do
     prompt='*'
     password+="$char"
 done
-echo
+echo ""
 authbase64=$(echo -en "\0$username\0$password" | base64)
 date=$(date --date=now "+%d %b %Y %H:%M:%S")
 openssl s_client -connect localhost:587 -starttls smtp -quiet <<EOF
@@ -48,6 +48,6 @@ Test DKIM
 .
 QUIT
 EOF
-echo
+echo ""
 echo "Now look for the message in the folder ~/Maildir/new/ of the user email for root is directed to."
-echo
+echo ""

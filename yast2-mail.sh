@@ -131,7 +131,7 @@ if [ "$isendmail" != "i" -a "$ipostfix" != "i" ] ; then
 	answ=${answ:0:1}
 	case $answ in
 	    "P"|"p" )
-		    zypper in -y postfix
+		    zypper in -y postfix telnet
 		    ipostfix="i"
 		    break
 		    ;;
@@ -148,10 +148,13 @@ else
 =================================
 EOF
     [ "${isendmail}" = "i" ] && cat <<EOF
-==================================
-= We will continue with Sendmail =
-==================================
+======================================
+= We will NOT continue with Sendmail =
+= This script only supports Postfix  =
+======================================
 EOF
+     [ "${isendmail}" = "i" ] && exit 0
+    [ ! -x /usr/bin/telnet ] && zypper in -y telnet
 fi
 echo ""
 echo "===================="
@@ -262,13 +265,13 @@ if [ ${#rhost} -ne 0 ] ; then
 	[ $? -eq 0 ] && changeup=1 || changeup=0
     fi
 fi
+[ ! -f /usr/bin/nslookup ] && zypper in -y bind-utils
 if [ $change -eq 0 ] ; then
     if [ ${#rhost} -eq 0 ] ; then 
 	echo 'Do you want outgoing email to a relayhost (the server of your provider)?'
 	yesorno
 	answ=$?
     fi
-    [ ! -f /usr/bin/nslookup ] && zypper in -y bind-utils
     if [ $answ -eq 0 ] ; then
 	while true
 	do
@@ -348,7 +351,7 @@ fi
 
 if [ "$POSTFIX_SMTP_TLS_CLIENT" = "no" ] ; then
     echo "Currently outgoing email will ${bold}not${offbold} be encrypted"
-else [ "$POSTFIX_SMTP_TLS_CLIENT" = "may" ] ; then
+else #[ $POSTFIX_SMTP_TLS_CLIENT" = yes
     echo "Currently outgoing email ${bold}may${offbold} be encrypted"
 fi
 echo "Is this OK? The alternatives are: ${bold}not${offbold} or ${bold}may${offbold}."
@@ -367,7 +370,8 @@ if [ $? -ne 0 ] ; then
 	setpar POSTFIX_SMTP_AUTH yes
 	POSTFIX_SMTP_AUTH="yes"
 	setpar POSTFIX_SMTP_TLS_CLIENT may
-	POSTFIX_SMTP_TLS_CLIENT="may"
+	POSTFIX_SMTP_TLS_CLIENT="yes"
+	zypper in -y cyrus-sasl-plain
     fi
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "no" ] ; then
@@ -859,14 +863,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	if [ ${#DOVECOT_SSL_ORGANIZATIONAL_UNIT} -eq 0 ] ; then
 	   change=0 
 	else
-	    echo "Your organizational name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
+	    echo "Your organizational unit name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
 	    echo "Is this OK?"
 	    yesorno
 	    [ $? -eq 0 ] && change=1 || change=0
 	fi
 	while [ $change -eq 0 ]
 	do
-	    echo "Enter the organizational name for this certificate,"
+	    echo "Enter the organizational unit name for this certificate,"
 	    echo -n "something like IMAP-server or Email Department : "
 	    read answ
 	    [ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
@@ -885,7 +889,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	[ $? -eq 0 ] && change=1 || change=0
 	while [ $change -eq 0 ]
 	do
-	    echo "Enter the common name for this certificate, should be the name in"
+	    echo "Enter the common name for the dovecot certificate, should be the name in"
 	    echo -n "the DNS for access to the imap server : "
 	    read answ
 	    [ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
@@ -917,13 +921,13 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     [ ${#POSTFIX_SSL_EMAIL_ADDRESS} -eq 0 ] && change=0 && answ="postmaster@$DOMAINNAME"
     echo -n "The "
     [ $change -eq 0 ] && echo -n "recommended "
-    echo "email address in your certificate is : $answ"
+    echo "email address in the postfix certificate is : $answ"
     echo "Is this OK?"
     yesorno
     [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the email address for the certificate of the email server : "
+	echo -n "Enter the email address for the certificate of postfix : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
 	break
@@ -1087,20 +1091,22 @@ if [ "$USE_AMAVIS" = "yes" ] ; then
 		case $answ in
 		    "N"|"n" ) setpara USE_DKIM no
 			      USE_DKIM="no"
-			      [ -f /usr/sbin/opendikim ] && zypper rm -y opendkim
+			      [ -f /usr/sbin/opendkim ] && zypper rm -y opendkim
 			      break ;;
 		    "A"|"a" ) setpara USE_DKIM yes
 			      USE_DKIM="yes"
-			      [ -f /usr/sbin/opendikim ] && zypper rm -y opendkim
+			      [ -f /usr/sbin/opendkim ] && zypper rm -y opendkim
 			      break ;;
 		    "O"|"o" ) setpara USE_DKIM openDKIM
 			      USE_DKIM="openDKIM"
-			      [ ! -f /usr/sbin/opendikim ] && zypper in -y opendkim
+			      [ ! -f /usr/sbin/opendkim ] && zypper in -y opendkim
 			      break ;;
 		    *	    ) echo "Please answer N or A or O" ;;
 		esac
 	    done
-        fi
+	else
+	    [ ! -f /usr/sbin/opendkim ] && zypper in -y opendkim
+	fi
     fi
 else
     setpara USE_DKIM no
@@ -1108,7 +1114,7 @@ else
 fi
 if [ "${USE_DKIM}" = "openDKIM" ] ; then
     if [ "$POSTFIX_DKIM_CONN" = "" -o "$POSTFIX_DKIM_CONN" = "socket" ] ; then
-	echo "Currently openDKIM will listen on socket /var/run/opendkim/opendkim.socket"
+	echo "Currently openDKIM will listen on socket /run/opendkim/opendkim.socket"
 	echo "The alternative is to listen on localhost port 8891"
 	echo "Is the current setting OK?"
 	yesorno
@@ -1121,7 +1127,7 @@ if [ "${USE_DKIM}" = "openDKIM" ] ; then
 	fi
     else
 	echo "Currently openDKIM will listen on localhost port 8891"
-	echo "The alternative is to listen on socket /var/run/opendkim/opendkim.socket"
+	echo "The alternative is to listen on socket /run/opendkim/opendkim.socket"
         echo "Is the current setting OK?"
         yesorno
         if [ $? -eq 0 ] ; then
@@ -1158,17 +1164,17 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	if [ ! -e /etc/opendmarc.conf ] ; then
 	    if [ ! -e /etc/zypp/repos.d/server-mail.repo ] ; then
 		zypper ar https://download.opensuse.org/repositories/server:/mail/15.5/ server-mail
-		zypper ar https://download.opensuse.org/repositories/devel:languages:perl/15.5/ devel-languages-perl
+		#zypper ar https://download.opensuse.org/repositories/devel:languages:perl/15.5/ devel-languages-perl
 		zypper ref server-mail
-		zypper ref devel-languages-perl
+		#zypper ref devel-languages-perl
 	    else
 		zypper mr -e server-mail
-		zypper mr -e devel-languages-perl
+		#zypper mr -e devel-languages-perl
 	    fi
 	    zypper in --allow-unsigned-rpm -y opendmarc
 	    # disable repository because a later zypper (d)up may cause problems
 	    zypper mr -d server-mail
-	    zypper mr -d devel-languages-perl
+	    #zypper mr -d devel-languages-perl
 	fi
 	mkdir -p /etc/opendmarc
 	egrep -q '^# AuthservID name' /etc/opendmarc.conf
