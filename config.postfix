@@ -105,7 +105,7 @@ mkchroot(){
 		    DKIM_SOCKET="${DKIM_SOCKET#/var}"
 		fi
 		if [[ -z "${DKIM_SOCKET}" ]]; then
-		    warn_user "\topendkim is not running with 'Socket      local:/run/opendkim/opendkim/socket
+		    warn_user "\topendkim is not running with 'Socket      local:/run/opendkim/opendkim.socket
 \tPlease set 'Socket' in '/etc/opendkim/opendkim.conf' as mentioned above."
 		    exit 1
         	else
@@ -313,9 +313,12 @@ mkchroot(){
 }
 
 gen_main_cf(){
-    TMPDIR=$(mktemp -d /tmp/config.postfix.XXXXXX) || exit 1
+    TMPDIR=$(mktemp -d /tmp/config.postfix.XXXXXX)
+    if [ $? -ne 0 ]; then
+       warn_user "Can't create temp directory, exiting..."
+       exit 1
+    fi
     PCONF="/usr/sbin/postconf -c $TMPDIR"
-
     export USE_DKIM
     # needed when for WITH_LDAP
     export POSTFIX_WITH_LDAP
@@ -329,10 +332,6 @@ gen_main_cf(){
     MCF_DIR=$TMPDIR
     export MCF_DIR
 
-    if [ $? -ne 0 ]; then
-       warn_user "Can't create temp directory, exiting..."
-       exit 1
-    fi
     cp -f /etc/postfix/{main,master}.cf $TMPDIR
 
     # Some default settings, that seem to be useable, at least to me
@@ -350,8 +349,10 @@ gen_main_cf(){
     $PCONF -e "masquerade_exceptions = root"
     $PCONF -e "masquerade_classes = envelope_sender, header_sender, header_recipient"
     if [ -n "${FQHOSTNAME}" ]; then
-      $PCONF -e "myhostname = $FQHOSTNAME"
-      $PCONF -e 'smtpd_sasl_local_domain = $myhostname'
+	$PCONF -e "myhostname = $FQHOSTNAME"
+	domain=${FQHOSTNAME#*.}
+	$PCONF -e "mydomain = $domain"
+	$PCONF -e 'smtpd_sasl_local_domain = $myhostname'
     fi
     $PCONF -e "delay_warning_time = 1h"
     $PCONF -e 'message_strip_characters = \0'
@@ -397,16 +398,21 @@ gen_main_cf(){
     
     if test -z "$POSTFIX_LOCALDOMAINS"; then
         if [ -n "${FQHOSTNAME}" ]; then
-	    mydest='$myhostname, $mydomain, localhost.$mydomain, localhost'
-	    [ -n "$POSTFIX_SSL_COMMON_NAME" -a "$POSTFIX_SSL_COMMON_NAME" != "$FQHOSTNAME" ] && \
-		mydest="$mydest, $POSTFIX_SSL_COMMON_NAME"
-            $PCONF -e "mydestination = $mydest"
-	    $PCONF -e 'myorigin = $mydomain'
+	    if [ -n "$POSTFIX_SSL_COMMON_NAME" -a "$POSTFIX_SSL_COMMON_NAME" != "$FQHOSTNAME" ] ; then
+		$PCONF -e "mydestination = \$myhostname, localhost.\$mydomain, \$mydomain, $POSTFIX_SSL_COMMON_NAME, localhost"
+	    else
+		$PCONF -e 'mydestination = $myhostname, localhost.$mydomain, $mydomain, localhost'
+	    fi
         else
             $PCONF -e 'mydestination = $myhostname, localhost.$mydomain'
         fi
     else
-        $PCONF -e "mydestination = $POSTFIX_LOCALDOMAINS"
+	if [ -n "${FQHOSTNAME}" ]; then
+	    md="$(echo mydestination = $POSTFIX_LOCALDOMAINS | sed s/$FQHOSTNAME/\$myhostname/ | sed s/$domain/\$mydomain/g )"
+	    $PCONF -e "$md"
+	else
+            $PCONF -e "mydestination = $POSTFIX_LOCALDOMAINS"
+	fi
     fi
 
     # this overrides the previous
@@ -653,17 +659,17 @@ using \"off\" instead!"
             $PCONF -e "smtpd_sasl_type= dovecot"
 	    $PCONF -e "home_mailbox = Maildir/"
         fi
-            touch -m -d "1 minute ago" $TMPDIR/main.cf
-            CURRENT=$($PCONF -h smtpd_helo_restrictions)
-        $PCONF -e "smtpd_helo_restrictions= permit_sasl_authenticated, $CURRENT"
-            touch -m -d "1 minute ago" $TMPDIR/main.cf
-            CURRENT=$($PCONF -h smtpd_client_restrictions)
-        $PCONF -e "smtpd_client_restrictions= permit_sasl_authenticated, $CURRENT"
-            touch -m -d "1 minute ago" $TMPDIR/main.cf
-            CURRENT=$($PCONF -h smtpd_sender_restrictions)
+        touch -m -d "1 minute ago" $TMPDIR/main.cf
+        CURRENT=$($PCONF -h smtpd_helo_restrictions)
+        $PCONF -e "smtpd_helo_restrictions = permit_sasl_authenticated, $CURRENT"
+        touch -m -d "1 minute ago" $TMPDIR/main.cf
+        CURRENT=$($PCONF -h smtpd_client_restrictions)
+        $PCONF -e "smtpd_client_restrictions = permit_sasl_authenticated, $CURRENT"
+        touch -m -d "1 minute ago" $TMPDIR/main.cf
+        CURRENT=$($PCONF -h smtpd_sender_restrictions)
         $PCONF -e "smtpd_sender_restrictions= permit_sasl_authenticated, $CURRENT"
-            touch -m -d "1 minute ago" $TMPDIR/main.cf
-            CURRENT=$($PCONF -h smtpd_recipient_restrictions)
+        touch -m -d "1 minute ago" $TMPDIR/main.cf
+        CURRENT=$($PCONF -h smtpd_recipient_restrictions)
         $PCONF -e "smtpd_recipient_restrictions= permit_sasl_authenticated, $CURRENT"
     else
         $PCONF -e "smtpd_sasl_auth_enable= no"
@@ -1126,6 +1132,7 @@ gen_opendkim(){
     else
 	date=${dkimfile%.pem}
 	date=${date##*dkim}
+	chown root:opendkim *.pem
     fi
     cd $cfolder
     grep -q -E "^# Mode[[:blank:]]+sv$" /etc/opendkim/opendkim.conf
@@ -1243,17 +1250,17 @@ while( <MCF> ) {
 	    $line = "#".$1;
 	}
     } elsif ( /^\#?(\s-o smtpd_milters=).*/ ) {
-	if ( $usedkim eq "opendkim" and not $dmarcchecks eq "yes" ) {
+	if ( $usedkim eq "opendkim" and $dmarcchecks ne "yes" ) {
 	    if ( $dkimconn eq "tcp" ) {
 		$line = $1."inet:127.0.0.1:8891";
 	    } else {
-		$line = $1."local:/run/opendkim/opendkim/socket";
+		$line = $1."local:/run/opendkim/opendkim.socket";
 	    }
 	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
 	    if ( $dkimconn eq "tcp" ) {
 		$line = $1."inet:127.0.0.1:8891,inet:127.0.0.1:8893";
 	    } else {
-		$line = $1."local:/run/opendkim/opendkim/socket,inet:127.0.0.1:8893";
+		$line = $1."local:/run/opendkim/opendkim.socket,inet:127.0.0.1:8893";
 	    }
 	} elsif ( $dmarcchecks eq "yes" ) {
 	    $line = $1."inet:127.0.0.1:8893";
@@ -1261,15 +1268,15 @@ while( <MCF> ) {
 	    $line = "#".$1."inet:127.0.0.1:8891";
 	}
     } elsif ( /^\#?(\s-o non_smtpd_milters=)inet:127\.0\.0\.1:/ ) {
-	if ( $usedkim eq "opendkim" ) {
+	if ( $usedkim eq "opendkim" and $dmarcchecks ne "yes" ) {
 	    if ( $dkimconn eq "tcp" ) {
 		$line = $1."inet:127.0.0.1:8891";
 	    } else {
-		$line = $1."local:/run/opendkim/opendkim/socket"
+		$line = $1."local:/run/opendkim/opendkim.socket"
 	    }
 	} elsif ( $usedkim eq "opendkim" and $dmarcchecks eq "yes" ) {
 	    if ( $dkimconn eq "tcp" ) {
-		$line = $1."8891,inet:127.0.0.1:8893";
+		$line = $1."inet:127.0.0.1:8891,inet:127.0.0.1:8893";
 	    } else {
 		$line = $1."local:/run/opendkim/opendkim.socket,inet:127.0.0.1:8893";
 	    }
@@ -1611,6 +1618,16 @@ while( <MCF> ) {
 	} else {
 	    $line = $1;
 	}
+    } elsif ( /\#?\s{5}(-o\ssmtpd_milters=)(.*)/ ) {
+	if ( $usedkim ne "opendkim" ) {
+	    $line = "#     ".$1.$2;
+	} else {
+	    if ( $dkimconn eq "tcp" ) {
+		$line = "     ".$1."inet:127.0.0.1:8891" ;
+	    } else {
+		$line = "     ".$1."local:/run/opendkim/opendkim.socket" ;
+	    }
+	}
     } elsif ( /^\#?\s{5}(-o\s)(.*)/ ) {
 	if ( $usedkim ne "opendkim" ) {
 	    $line = "#     ".$1.$2;
@@ -1872,14 +1889,18 @@ if [ -x /usr/sbin/amavisd ]; then
     if [ "$USE_AMAVIS" = "yes" ]; then
         gen_amavisd_cf
 	mv /tmp/amavisd.conf /etc/amavisd.conf
-#	[ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
-#	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
-#	sleep 5
+	[ "$(systemctl is-active freshclam.service)" != "active" ] && systemctl start freshclam.service
+	grep -q Tumbleweed /etc/os-release
+	[ $? -eq 0 ] && [ "$(systemctl is-enabled freshclam.timer)" != "enabled" ] && systemctl enable freshclam.timer
+	grep -q 'Leap 15.5' /etc/os-release
+	[ $? -eq 0 ] && [ "$(systemctl is-enabled freshclam.service)" != "enabled" ] && systemctl enable freshclam.service
+	sleep 5 # hopefully freshclam has been finished, otherwise clamd.service may fail
 	[ "$(systemctl is-enabled clamd.service)" != "enabled" ] && systemctl enable clamd.service > /dev/null
 	[ "$(systemctl is-active clamd.service)" != "active" ] && systemctl start clamd.service
 	sleep 5
 	[ "$(systemctl is-enabled amavis.service)" != "enabled" ] && systemctl enable amavis.service > /dev/null
 	sa-update
+	[ "$USE_DKIM" = "yes" ] && [ $(ls /var/db/dkim/*.pem | wc -l) -ne 0 ] && chown vscan:root /var/db/dkim/*.pem
 	[ "$(systemctl is-active amavis.service)" != "active" ] && systemctl start amavis.service
     fi
 fi

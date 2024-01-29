@@ -108,11 +108,17 @@ yesorno()
 #
 # Start of the main program
 #
-# Source /etc/sysconfig/postfix
+# Which OS?
 #
-[ -f /etc/sysconfig/postfix ] && source /etc/sysconfig/postfix
-[ -f /etc/sysconfig/mail ] && source /etc/sysconfig/mail
-[ -f /etc/sysconfig/amavis ] && source /etc/sysconfig/amavis
+OS=$(grep -E '^PRETTY_NAME=' /etc/os-release)
+OS=${OS##* }
+OS=${OS:0:-1} # remove trailing #
+if [ "$OS" != "Tumbleweed" -a "$OS" != "15.5" ] ; then
+    echo "This script has only been tested on Tumbleweed and Leap 15.5."
+    echo "It will exit now!"
+    exit 0
+fi
+[ "$OS" = "Tumbleweed" ] && OS="openSUSE_Tumbleweed"
 #
 # Which MTA?
 #
@@ -131,31 +137,45 @@ if [ "$isendmail" != "i" -a "$ipostfix" != "i" ] ; then
 	answ=${answ:0:1}
 	case $answ in
 	    "P"|"p" )
+		    [ ! -f /etc/zypp/repos.d/postfix-fdekruijf.repo ] &&zypper ar \
+			https://download.opensuse.org/repositories/home:/fdekruijf:/branches:/server:/mail/$OS/ \
+			postfix-fdekruijf
 		    zypper in -y postfix telnet
 		    ipostfix="i"
 		    break
 		    ;;
 	    "S"|"s" )
+		    echo "This script supports only postfix, so it will exit a while later."
+		    isendmail="i"
 		    break
 		    ;;
 	    *       ) echo "Please enter the proper character" ;;
 	 esac
     done
-else
-    [ "${ipostfix}" = "i" ] && cat <<EOF
+fi
+if [ "${ipostfix}" = "i" ] ; then
+    cat <<EOF
 =================================
 = We will continue with Postfix =
 =================================
 EOF
-    [ "${isendmail}" = "i" ] && cat <<EOF
+fi
+if [ "${isendmail}" = "i" ] ; then
+    cat <<EOF
 ======================================
 = We will NOT continue with Sendmail =
 = This script only supports Postfix  =
 ======================================
 EOF
-     [ "${isendmail}" = "i" ] && exit 0
-    [ ! -x /usr/bin/telnet ] && zypper in -y telnet
+    exit 0
 fi
+#
+[ ! -x /usr/bin/telnet ] && zypper in -y telnet
+# Source /etc/sysconfig/postfix
+#
+[ -f /etc/sysconfig/postfix ] && source /etc/sysconfig/postfix
+[ -f /etc/sysconfig/mail ] && source /etc/sysconfig/mail
+[ -f /etc/sysconfig/amavis ] && source /etc/sysconfig/amavis
 echo ""
 echo "===================="
 echo "= General settings ="
@@ -195,12 +215,13 @@ if [ "$CONTYPE" != "Permanent" -a "${ipostfix}" != "i" ] ; then
     echo "Exiting..."
     exit
 fi
-echo "A null client is a machine that can only send mail. It receives no"
+echo -e "\nA null client is a machine that can only send mail. It receives no"
 echo "mail from the network, and it does not deliver any mail locally."
 echo "It will send locally submitted messages onto the relayhost."
 if [ "$POSTFIX_NULLCLIENT" = "no" ] ; then
-    echo "Currently you did NOT configure a nullclient type postfix."
-    echo "Is this OK?"
+    echo -e "\nCurrently the configuration selects a standard postfix."
+    echo "The alternative is a nullclient type postfix."
+    echo "Is this OK? Answer Y(es) to keep the standard postfix."
     yesorno
     if [ $? -eq 1 ] ; then
 	setpar POSTFIX_NULLCLIENT yes
@@ -210,8 +231,8 @@ if [ "$POSTFIX_NULLCLIENT" = "no" ] ; then
 	POSTFIX_NULLCLIENT="no"
     fi
 else
-    echo "Currently you did configure a nullclient type postfix"
-    echo "Is this OK?"
+    echo -e "\nCurrently you did configure a nullclient type postfix"
+    echo "Is this OK? This means a very limited email server."
     yesorno
     if [ $? -eq 1 ] ; then
 	setpar POSTFIX_NULLCLIENT no
@@ -237,10 +258,10 @@ if [ ${#rhost} -ne 0 ] ; then
     rhost=${rhost%]*}
     if [ $change -eq 0 ] ; then
 	if [ ${#port} -eq 0 ] ; then
-	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}${offbold}"
+	    echo -e "\nCurrently you want outgoing email to relayhost: ${bold}${rhost}${offbold}"
 	    echo "You did not specify a port, normaly, you should."
 	else
-	    echo "Currently you want outgoing email to relayhost: ${bold}${rhost}:$port${offbold}"
+	    echo -e "\nCurrently you want outgoing email to relayhost: ${bold}${rhost}:$port${offbold}"
 	fi
 	echo "Is this OK?"
 	yesorno
@@ -259,7 +280,7 @@ if [ ${#rhost} -ne 0 ] ; then
 	fi
     fi
     if [ $changeup -ne 0 ] ; then
-	echo "Username and password may be in /etc/postfix/sasl_passwd and possibly are: ${bold}$user : $passw${offbold}"
+	echo -e "\nUsername and password may be in /etc/postfix/sasl_passwd and possibly are: ${bold}$user : $passw${offbold}"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && changeup=1 || changeup=0
@@ -268,7 +289,7 @@ fi
 [ ! -f /usr/bin/nslookup ] && zypper in -y bind-utils
 if [ $change -eq 0 ] ; then
     if [ ${#rhost} -eq 0 ] ; then 
-	echo 'Do you want outgoing email to a relayhost (the server of your provider)?'
+	echo -e '\nDo you want outgoing email to a relayhost (the server of your provider)?'
 	yesorno
 	answ=$?
     fi
@@ -300,7 +321,7 @@ if [ $change -eq 0 ] ; then
     fi
 fi
 if [ "${POSTFIX_RELAYHOST:0:1}" = "[" ] ; then
-    echo "Currently postfix will NOT lookup the MX record of ${bold}${rhost}${offbold}"
+    echo -e "\nCurrently postfix will NOT lookup the MX record of ${bold}${rhost}${offbold}"
     echo "This is the standard."
     echo "Is this OK?"
     yesorno
@@ -312,8 +333,8 @@ if [ "${POSTFIX_RELAYHOST:0:1}" = "[" ] ; then
 	[ ${#port} -ne 0 ] && par="${par}:$port"
     fi
 else
-    echo "Should postfix lookup the MX record of ${bold}$rhost${offbold}."
-    echo "This not the standard. Answer no will adhere to the standard."
+    echo -e "\nShould postfix lookup the MX record of ${bold}$rhost${offbold}."
+    echo "This not the standard. Answer (N)o will adhere to the standard."
     yesorno
     if [ $? -ne 0 ] ; then
 	par="[${rhost}]"
@@ -328,12 +349,12 @@ POSTFIX_RELAYHOST="$par"
 if [ $changeup -eq 0 ] ; then
     while true
     do
-	echo -n "Enter the username for access to $rhost, often an email address : "
+	echo -e -n "\nEnter the username for access to $rhost, often an email address : "
 	read user
 	[ ${#user} -eq 0 ] && echo "Username can not be an empty string" && continue
-	echo -n "Enter the password for access to $rhost : "
+	echo -e -n "\nEnter the password for access to $rhost : "
 	read passw
-	[ ${#passw} -eq 0 ] && echo "Password can not be an emptyi string" && continue
+	[ ${#passw} -eq 0 ] && echo "Password can not be an empty string" && continue
 	break
     done
 fi
@@ -350,32 +371,39 @@ fi
 # These special cases (in a policy table) are not supported here.
 
 if [ "$POSTFIX_SMTP_TLS_CLIENT" = "no" ] ; then
-    echo "Currently outgoing email will ${bold}not${offbold} be encrypted"
-else #[ $POSTFIX_SMTP_TLS_CLIENT" = yes
-    echo "Currently outgoing email ${bold}may${offbold} be encrypted"
+    echo -e "\nCurrently outgoing email will ${bold}not${offbold} be tried to be encrypted."
+    echo "Answer N(o) is the recommended answer."
+else
+    echo -e "\nCurrently outgoing email will be ${bold}tried${offbold} to be encrypted"
+    echo "Answer Y(es) is the recommended answer."
 fi
-echo "Is this OK? The alternatives are: ${bold}not${offbold} or ${bold}may${offbold}."
+echo "The alternatives are: ${bold}not${offbold} encrypted or will be ${bold}tried${offbold} to be."
+echo "Answer N(o) will alter the setting. Answer Y(es) leaves the setting as it is."
 yesorno
 if [ $? -ne 0 ] ; then
-	echo "Two posibilities: No, or if possible (may)."
-    echo "Your choice is: No?"
-    yesorno
-    if [ $? -eq 0 ] ; then
-	setpar POSTFIX_SMTP_AUTH no
-	POSTFIX_SMTP_AUTH="no"
-	setpar POSTFIX_SMTP_TLS_CLIENT no
-	POSTFIX_SMTP_TLS_CLIENT="no"
-    else
-	echo "So your choice is: If possible (may)?"
-	setpar POSTFIX_SMTP_AUTH yes
-	POSTFIX_SMTP_AUTH="yes"
-	setpar POSTFIX_SMTP_TLS_CLIENT may
-	POSTFIX_SMTP_TLS_CLIENT="yes"
-	zypper in -y cyrus-sasl-plain
-    fi
+    case $POSTFIX_SMTP_TLS_CLIENT in
+	"no" )
+	    setpar POSTFIX_SMTP_AUTH yes
+	    POSTFIX_SMTP_AUTH="yes"
+	    setpar POSTFIX_SMTP_TLS_CLIENT yes
+	    POSTFIX_SMTP_TLS_CLIENT="yes" ;;
+	*    )
+	    setpar POSTFIX_SMTP_AUTH no
+	    POSTFIX_SMTP_AUTH="no"
+	    setpar POSTFIX_SMTP_TLS_CLIENT no
+	    POSTFIX_SMTP_TLS_CLIENT="no" ;;
+    esac
+else #just to be safe
+    setpar POSTFIX_SMTP_AUTH $POSTFIX_SMTP_TLS_CLIENT
+    POSTFIX_SMTP_AUTH="$POSTFIX_SMTP_TLS_CLIENT"
+fi
+if [ "$POSTFIX_SMTP_TLS_CLIENT" = "yes" -o "$POSTFIX_RELAYHOST" != "" ] ; then
+    [ ! -f /usr/*/sasl2/libplain.so ] && zypper in -y cyrus-sasl cyrus-sasl-plain
+else
+    [ -f /usr/*/sasl2/libplain.so ] && zypper rm -u -y cyrus-sasl cyrus-sasl-plain
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "no" ] ; then
-    echo "Currently remote access to your incoming port 25 is not enabled."
+    echo -e "\nCurrently remote access to your incoming port 25 is not enabled."
     [ "$POSTFIX_NULLCLIENT" = "yes" ] && echo "Postfix is configured as a nullclient, which is consistent with the current state."
     [ "$USE_AMAVIS" = "yes" ] && echo "AMaVis is enabled, which is not consistent with the current state."
     echo "Do you want access enabled? This means that other parameters will be made consistent."
@@ -387,7 +415,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "no" ] ; then
 	POSTFIX_NULLCLIENT="no"
     fi
 else
-    echo "Currently remote access to your incoming port 25 is enabled."
+    echo -e "\nCurrently remote access to your incoming port 25 is enabled."
     [ "$USE_AMAVIS" = "no" ] && echo "Also AMaVis should be enabled!!!"
     [ "$POSTFIX_NULLCLIENT" = "yes" ] && echo "Postfix is configured as a nullclient, which is inconsistent with current state."
     echo "Is this OK?"
@@ -402,54 +430,70 @@ else
     fi
 fi
 if [ -n "$USE_AMAVIS" -a "$USE_AMAVIS" = "yes" ] ; then
-    echo "Currently virus scanning with AMaVis is enabled."
+    echo -e "\nCurrently virus scanning with AMaVis is enabled."
     [ "$SMTPD_LISTEN_REMOTE" = "no" ] && echo "However you are not listening to remote servers."
 else
-    echo "Currently virus scanning with AMaVis is not enabled"
+    echo -e "\nCurrently virus scanning with AMaVis is not enabled"
     [ "$SMTPD_LISTEN_REMOTE" = "yes" ] && echo "However it is recommended to use this when listening to remote servers."
 fi
-echo "Is this OK?"
+echo "Do you want virus scanning by AMavis?"
 yesorno
-if [ $? -ne 0 ] ; then
+if [ $? -eq 0 ] ; then
     if [ -z "$USE_AMAVIS" -o "$USE_AMAVIS" = "no" ] ; then
 	if [ ! -f /etc/amavisd.conf ] ; then
 	    echo "AMaVis and corresponding packages will be installed"
 	    zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+	    # Start freshclam now so it is hopefully ready when clamd starts
+	    systemctl start freshclam.service
 	fi
 	setpara USE_AMAVIS yes
 	USE_AMAVIS="yes"
     else
-	echo "AMaVis is installed; will be removed with corresponding packages"
-	zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
-	USE_AMAVIS="no"
+	if [ ! -f /etc/amavisd.conf ] ; then
+	    #should not happen, just to sure
+            echo "AMaVis and corresponding packages will be installed"
+            zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+            # Start freshclam now so it is hopefully ready when clamd starts
+            systemctl start freshclam.service
+        fi
     fi
 else
-    if [ "$USE_AMAVIS" = "yes" ] ; then
-	 [ ! -f /etc/amavisd.conf ] && zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+    if [ -z "$USE_AMAVIS" -o "$USE_AMAVIS" = "no" ] ; then
+	if [ -f /etc/amavisd.conf ] ; then
+	    # should not happen
+	    zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+	fi
+    else
+	if [ -f /etc/amavisd.conf ] ; then
+            zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+        fi
+	setpara USE_AMAVIS no
+	USE_AMAVIS="no"
     fi
 fi
 if [ "$POSTFIX_NULLCLIENT" = "yes" -a "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
-    echo "Remote access to port 25 and postfix type is nullclient are mutually exclusive"
+    echo -e "\nRemote access to port 25 and postfix type is nullclient are mutually exclusive"
     echo "The script will be aborted"
     exit 1
 fi
 if [ "$USE_AMAVIS" = "yes" -a "$SMTPD_LISTEN_REMOTE" = "no" ] ; then
-    echo "No remote access to port 25 and use of AMaVis makes no sense"
+    echo -e "\nNo remote access to port 25 and use of AMaVis makes no sense"
     echo "The script will be aborted"
     exit 1
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
     if [ "$POSTFIX_SMTP_TLS_SERVER" = "no" ] ; then
-	echo "Currently you allow incoming email on port 25, but it is not encrypted?"
-	echo "Do you want encrypted access?"
+	echo -e "\nCurrently you allow incoming email on port 25, but it is not encrypted?"
+	echo "Do you want encrypted access? Answer Y(es) is recommended."
 	yesorno
 	if [ $? -eq 0 ] ; then
 	    setpar POSTFIX_SMTP_TLS_SERVER yes
 	    POSTFIX_SMTP_TLS_SERVER="yes"
 	fi
     else 
-	echo "Currently you allow incoming email on port 25 with encryption."
-	echo "Is this OK? Otherwise encryption on this port will be removed."
+	echo -e "\nCurrently you allow incoming email on port 25 with encryption."
+	echo "Y(es) is recommended, Otherwise encryption will be removed. When encryption is"
+       	echo "removed you will not be able to have authenticated access to port 587. Is encryption OK?"
 	yesorno
 	if [ $? -ne 0 ] ; then
 	    setpar POSTFIX_SMTP_TLS_SERVER no
@@ -461,7 +505,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "yes" -a "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ "$POSTFIX_SMTP_AUTH_SERVER" = "no" ] ; then
-	echo "Currently you only allow encrypted incoming email on port 25."
+	echo -e "\nCurrently you only allow encrypted incoming email on port 25."
 	echo "Do you also want authenticated access on port 587?"
 	yesorno
 	if [ $? -eq 0 ] ; then
@@ -469,7 +513,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" -a "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; th
 	    POSTFIX_SMTP_AUTH_SERVER="yes"
 	fi
     else
-	echo "Currently you allow encrypted incoming email on port 25 and authenticated access on port 587."
+	echo -e "\nCurrently you allow encrypted incoming email on port 25 and authenticated access on port 587."
 	echo "Is this OK? Otherwise authenticated access on port 587 will be removed."
 	yesorno
 	if [ $? -ne 0 ] ; then
@@ -477,17 +521,21 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" -a "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; th
 	    POSTFIX_SMTP_AUTH_SERVER="no"
 	fi
     fi
+else
+    # just make sure
+    setpar POSTFIX_SMTP_AUTH_SERVER no
+    POSTFIX_SMTP_AUTH_SERVER="no"
 fi
 if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
     change=1
     if [ -n "$POSTFIX_BASIC_SPAM_PREVENTION" ] ; then
-	echo "Currently you have enabled basic spam prevention with type ${bold}$POSTFIX_BASIC_SPAM_PREVENTION${offbold}"
+	echo -e "\nCurrently you have enabled basic spam prevention with type ${bold}$POSTFIX_BASIC_SPAM_PREVENTION${offbold}"
 	echo "Possibilities are: none, medium, hard, and custom."
 	echo "Is the current one OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
     else
-	echo "You did not specify the basic spam prevention, which can be:"
+	echo -e "\nYou did not specify the basic spam prevention, which can be:"
 	echo "none, medium, hard, and custom."
 	echo "Do you want none changed in something else?"
 	yesorno
@@ -515,12 +563,12 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
     if [ "$POSTFIX_BASIC_SPAM_PREVENTION" = "medium" -o "$POSTFIX_BASIC_SPAM_PREVENTION" = "hard" ] ; then
 	change=1
 	if [ -n "$POSTFIX_RBL_HOSTS" ] ; then
-	    echo "You have specified to blacklist hosts from the server(s): $POSTFIX_RBL_HOSTS"
+	    echo -e "\nYou have specified to blacklist hosts from the server(s): $POSTFIX_RBL_HOSTS"
 	    echo "Is this OK?"
 	    yesorno
 	    [ $? -eq 0 ] && change=1 || change=0
 	else
-	    echo "You did not specify any server with hosts to be blacklisted."
+	    echo -e "\nYou did not specify any server with hosts to be blacklisted."
 	    echo "Do you want anything in your list? Options will be given."
 	    yesorno
 	    change=$?
@@ -567,7 +615,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	    #
 	    # Find the host name and the domain name of the system
 	    #
-	    echo "Trying to find host name and domain name..."
+	    echo -e "\nTrying to find host name and domain name..."
 	    HOSTNAME="$(hostname -f 2>/dev/null)"
 	    # may contain IPv6 address (: in name), if so localhost, or no value
 	    [ -z "$HOSTNAME" -o "$HOSTNAME" != "${HOSTNAME%%:*}" ] && HOSTNAME="localhost"
@@ -575,7 +623,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	    HOSTNAME=${HOSTNAME%%.*}
 	    change=1
 	    if [ "$HOSTNAME" != "localhost" ] ; then
-		echo "Currently your hostname is: ${bold}$HOSTNAME${offbold}"
+		echo -e "\nCurrently your hostname is: ${bold}$HOSTNAME${offbold}"
 		echo "Is this OK?"
 		yesorno
 		[ $? -ne 0 ] && change=0
@@ -600,7 +648,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 		ipa=${ipa%% *}
 		while true
 		do
-		    echo -n "Enter the domain name (should contain a dot): "
+		    echo -e -n "\nEnter the domain name (should contain a dot): "
 		    read DOMAINNAME
 		    [ ${#DOMAINNAME} -eq 0 ] && "Domain name can not be empty" && continue
 		    [ "$DOMAINTNAME" = "${DOMAINNAME%#.*}" ] && echo "Hostname does not contains a dot" && continue
@@ -622,12 +670,16 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 		[ $? -ne 0 ] && echo "mail.$DOMAINNAME does not have an A or CNAME record" && n=$(($n+1))
 		nslookup -query=A imap.$DOMAINNAME > /tmp/imapdomain
 		[ $? -ne 0 ] && echo "imap.$DOMAINNAME does not have an A or CNAME record" && n=$(($n+1))
-		[ $n -ne 0 ] &&\
-		    echo "Please provide the required records in the DNS for domain $DOMAINNAME and start the script again"\
-			&& exit 1
+		if [ $n -ne 0 ] ; then
+		    echo "Please provide the required records in the DNS for domain $DOMAINNAME and start the script again"
+		    rm /tmp/Adomain /tmp/MXdomain /tmp/smtpdomain /tmp/maildomain /tmp/imapdomain
+		    exit 1
+		else
+		    echo "Records found in the DNS"
+		fi
 		gipaddress=$(grep 'Address:' /tmp/Adomain | tail -1)
 		gipaddress=${gipaddress#* }
-		sub[0]="smtp" ; sub[1]="mail" ; sub[3]="imap" ; i=0 ; n=0
+		sub[0]="smtp" ; sub[1]="mail" ; sub[2]="imap" ; i=0 ; n=0
 		for f in /tmp/smtpdomain /tmp/maildomain /tmp/imapdomain
 		do
 		    grep -q "$gipaddress" $f
@@ -635,6 +687,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 		    rm $f
 		    i=$(($i+1))
 		done
+		rm /tmp/Adomain /tmp/MXdomain
 		[ $n -ne 0 ] && echo "Apparently there is something wrong with the data in the DNS. Please fix it" && exit 1
 		#
 		# Check if there is already an entry in /etc/hosts for the server, if so remove it and enter such an entry.
@@ -669,7 +722,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 		DOMAINNAME=${DOMAINNAME#*.}
 		if [ "$hostname" != "$HOSTNAME" ] ; then
 		    echo "There is an inconsistency between content in /etc/hostname and /etc/hosts"
-		    echo "Please solve this inconsistency"
+		    echo "Please solve this inconsistency, exiting..."
 		    exit 1
 	        else
 		    echo "The domain name to be used is ${bold}$DOMAINNAME${offbold}"
@@ -684,11 +737,16 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	DOMAINNAME=${POSTFIX_MYHOSTNAME#*.}
     fi
 fi
+echo -e "\n===================================================="
+echo      "= Here we continue after the reboot with host name ="
+echo      "= and domain name embedded in the system.          ="
+echo      "= New questions will be asked.                     ="
+echo      "==================================================="
 if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     change=1
     if [ "${POSTFIX_SMTP_AUTH_SERVICE,,}" = "dovecot" ] ; then
-	echo "Currently you want to use dovecot for authentication"
-	echo "Is this OK?"
+	echo -e "\nCurrently you want to use dovecot for authentication"
+	echo "Is this OK? Answer N(o) selects cyrus."
 	yesorno
 	if [  $? -ne 0 ] ; then
 	    setpar POSTFIX_SMTP_AUTH_SERVICE cyrus
@@ -704,8 +762,8 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
             [  -e /usr/lib/systemd/system/saslauthd.service ] && zypper rm -y -u cyrus-sasl-saslauthd cyrus-sasl-plain
 	fi
     else
-	echo "Currently you want to use cyrus for authentication"
-	echo "Is this OK?"
+	echo -e "\nCurrently you want to use cyrus for authentication"
+	echo "Is this OK? Answer N(o) selects dovecot."
 	yesorno
 	if [ $? -ne 0 ] ; then
 	    setpar POSTFIX_SMTP_AUTH_SERVICE dovecot
@@ -720,7 +778,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	fi
     fi
     # we need to prepare the generation of a self-signed certificate
-    echo "Information for generating a self-signed certificate for postfix"
+    echo -e "\nInformation for generating a self-signed certificate for postfix"
     if [ "$POSTFIX_SMTP_AUTH_SERVICE" = "dovecot" ] ; then
 	echo "Dovecot authentication also means a secured imap server by dovecot,"
 	echo "which also needs a self-signed certificate"
@@ -738,14 +796,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_COUNTRY} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your country code is : $POSTFIX_SSL_COUNTRY"
+	echo -e "\nYour country code is : $POSTFIX_SSL_COUNTRY"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
     fi
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the two letter code of your country : "
+	echo -e -n "\nEnter the two letter code of your country : "
 	read answ
 	[ ${#answ} -ne 2 ] && echo "Not a two letter code" && continue
 	answ=${answ^^}
@@ -756,14 +814,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_STATE} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your state/province is : $POSTFIX_SSL_STATE"
+	echo -e "\nYour state/province is : $POSTFIX_SSL_STATE"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
     fi
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the name of your state/province : "
+	echo -e -n "\nEnter the name of your state/province : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
 	setpar POSTFIX_SSL_STATE "$answ"
@@ -773,14 +831,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_LOCALITY} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your city/locality is : $POSTFIX_SSL_LOCALITY"
+	echo -e "\nYour city/locality is : $POSTFIX_SSL_LOCALITY"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
     fi
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the name of your city/locality : "
+	echo -e -n "\nEnter the name of your city/locality : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
 	setpar POSTFIX_SSL_LOCALITY "$answ"
@@ -790,14 +848,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_ORGANIZATION} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your organization is : $POSTFIX_SSL_ORGANIZATION"
+	echo -e "\nYour organization is : $POSTFIX_SSL_ORGANIZATION"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=1
     fi
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the name of your organization : "
+	echo -e -n "\nEnter the name of your organization : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
 	setpar POSTFIX_SSL_ORGANIZATION "$answ"
@@ -807,14 +865,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     if [ ${#POSTFIX_SSL_ORGANIZATIONAL_UNIT} -eq 0 ] ; then
 	change=0 
     else
-	echo "Your organizational unit for postfix certificate is : $POSTFIX_SSL_ORGANIZATIONAL_UNIT"
+	echo -e "\nYour organizational unit for postfix certificate is : $POSTFIX_SSL_ORGANIZATIONAL_UNIT"
 	echo "Is this OK?"
 	yesorno
 	[ $? -eq 0 ] && change=1 || change=0
     fi
     while [ $change -eq 0 ]
     do
-	echo -n "Enter the name of your organizational unit : "
+	echo -e -n "\nEnter the name of your organizational unit : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
 	setpar POSTFIX_SSL_ORGANIZATIONAL_UNIT "$answ"
@@ -824,7 +882,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     change=1
     answ="$POSTFIX_SSL_CERTIFICATE_AUTHORITY"
     [ ${#POSTFIX_SSL_CERTIFICATE_AUTHORITY} -eq 0 ] && change=0 && answ="Certificate Authority"
-    echo -n "Your "
+    echo -e -n "\nYour "
     [ $change -eq 0 ] && echo -n "recommended "
     echo "common name for the Certificate Authority is : $answ"
     echo "Is this OK?"
@@ -842,7 +900,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     change=1
     answ="$POSTFIX_SSL_COMMON_NAME"
     [ ${#POSTFIX_SSL_COMMON_NAME} -eq 0 ] && change=0 && answ="smtp.$DOMAINNAME"
-    echo -n "Your "
+    echo -e -n "\nYour "
     [ $change -eq 0 ] && echo -n "recommended "
     echo "common name for the certificate for postfix is : $answ"
     echo "Should be the name in the MX record for the domain."
@@ -851,7 +909,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     [ $? -eq 0 ] && change=1 || change=0
     while [ $change -eq 0 ]
     do
-	echo "Enter the common name for this certificate, should be the"
+	echo -e "\nEnter the common name for this certificate, should be the"
        	echo -n "name in the MX record for the domain like {mail,smtp}.$DOMAINNAME : "
 	read answ
 	[ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
@@ -863,14 +921,14 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	if [ ${#DOVECOT_SSL_ORGANIZATIONAL_UNIT} -eq 0 ] ; then
 	   change=0 
 	else
-	    echo "Your organizational unit name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
+	    echo -e "\nYour organizational unit name for the certificate for dovecot is : $DOVECOT_SSL_ORGANIZATIONAL_UNIT"
 	    echo "Is this OK?"
 	    yesorno
 	    [ $? -eq 0 ] && change=1 || change=0
 	fi
 	while [ $change -eq 0 ]
 	do
-	    echo "Enter the organizational unit name for this certificate,"
+	    echo -e "\nEnter the organizational unit name for this certificate,"
 	    echo -n "something like IMAP-server or Email Department : "
 	    read answ
 	    [ ${#answ} -eq 0 ] && echo "Should not be empty" && continue
@@ -881,7 +939,7 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
 	change=1
 	answ="$DOVECOT_SSL_COMMON_NAME"
 	[ ${#DOVECOT_SSL_COMMON_NAME} -eq 0 ] && change=0 && answ="imap.$DOMAINNAME"
-	echo -n "Your "
+	echo -e -n "\nYour "
        	[ $change -eq 0 ] && echo -n "recommended "
 	echo "common name for the certificate for dovecot is : $answ"
 	echo "Is this OK?"
@@ -901,9 +959,9 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     change=1
     answ="$CERTIFICATE_AUTHORITY_EMAIL_ADDRESS"
     [ ${#CERTIFICATE_AUTHORITY_EMAIL_ADDRESS} -eq 0 ] && change=0 && answ="ca@$DOMAINNAME"
-    echo -n "The "
+    echo -e -n "\nThe "
     [ $change -eq 0 ] && echo -n "recommended "
-    echo "email address of the Certificate Authority is : $answ"
+    echo "Email address of the Certificate Authority is : $answ"
     echo "Is this OK?"
     yesorno
     [ $? -eq 0 ] && change=1 || change=0
@@ -917,11 +975,11 @@ if [ "$POSTFIX_SMTP_TLS_SERVER" = "yes" ] ; then
     setpar CERTIFICATE_AUTHORITY_EMAIL_ADDRESS "$answ"
     CERTIFICATE_AUTHORITY_EMAIL_ADDRESS="$answ"
     change=1
-    anw="$POSTFIX_SSL_EMAIL_ADDRESS"
+    answ="$POSTFIX_SSL_EMAIL_ADDRESS"
     [ ${#POSTFIX_SSL_EMAIL_ADDRESS} -eq 0 ] && change=0 && answ="postmaster@$DOMAINNAME"
-    echo -n "The "
+    echo -e -n "\nThe "
     [ $change -eq 0 ] && echo -n "recommended "
-    echo "email address in the postfix certificate is : $answ"
+    echo "Email address in the postfix certificate is : $answ"
     echo "Is this OK?"
     yesorno
     [ $? -eq 0 ] && change=1 || change=0
@@ -940,13 +998,13 @@ change=1
 addedvalues=""
 mydomain="${POSTFIX_MYHOSTNAME#*.}"
 if [ -n "$POSTFIX_LOCALDOMAINS" ] ; then
-    echo "Currently the domains this server considers local are:"
+    echo -e "\nCurrently the domains this server considers local are:"
     echo "${bold}$POSTFIX_LOCALDOMAINS${unbold}"
     for local in "$POSTFIX_MYHOSTNAME" "$mydomain" "localhost.$mydomain"
     do
 	[ $(echo "$POSTFIX_LOCALDOMAINS" | egrep -q "^${local},") -o \
 		$(echo "$POSTFIX_LOCALDOMAINS" | grep -q " ${local},") ] && continue
-	echo "Apparently the parameter POSTFIX_LOCALDOMAINS does not contain '$local'"
+	echo -e "\nApparently the parameter POSTFIX_LOCALDOMAINS does not contain '$local'"
 	echo "This parameter will be reset trying to use previous values"
 	change=0
     done
@@ -966,7 +1024,7 @@ if [ -n "$POSTFIX_LOCALDOMAINS" ] ; then
     addedvalues=${POSTFIX_LOCALDOMAINS#* localhost,}
 fi
 if [ $change -eq 0 -o -z "$POSTFIX_LOCALDOMAINS" ] ; then
-    echo "Currently the domains this server considers or should consider local domains are:"
+    echo -e "\nCurrently the domains this server considers or should consider local domains are:"
     echo -n "${bold}$POSTFIX_MYHOSTNAME, $mydomain, localhost.$mydomain"
     [ -n "$POSTFIX_SSL_COMMON_NAME" -a "$POSTFIX_SSL_COMMON_NAME" != "$POSTFIX_MYHOSTNAME" ] && echo -n ", $POSTFIX_SSL_COMMON_NAME"
     echo "${offbold} and ${bold}localhost${offbold}"
@@ -990,7 +1048,7 @@ if [ $change -eq 0 -o -z "$POSTFIX_LOCALDOMAINS" ] ; then
 	    [ $? -eq 0 ] && POSTFIX_LOCALDOMAINS="$POSTFIX_LOCALDOMAINS, $local" && addv=$(($addv+1))
 	done
     fi
-    echo 'Do you want (more) additional domains?'
+    echo -e 'no you want (more) additional domains?'
     yesorno
     if [ $? -eq 0 ] ; then
 	while true
@@ -1013,7 +1071,7 @@ setpar POSTFIX_LOCALDOMAINS "$POSTFIX_LOCALDOMAINS"
 #
 if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
     if [ "$POSTFIX_SPF_CHECKS" = "no" ] ; then
-	echo "Currently you do NOT want to check incoming connections on port 25 on SPF information"
+	echo -e "\nCurrently you do NOT want to check incoming connections on port 25 on SPF information"
 	echo "Is this OK?"
 	yesorno
 	if [ $? -ne 0 ] ; then
@@ -1025,7 +1083,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	    chown policyd-spf:root /etc/policyd-spf
 	fi
     else
-	echo "Currently you want to check incoming connections on port 25 on SPF information"
+	echo -e "\nCurrently you want to check incoming connections on port 25 on SPF information"
 	echo "Is this OK?"
 	yesorno
 	if [ $? -ne 0 ] ; then
@@ -1057,12 +1115,12 @@ fi
 #
 if [ "$USE_AMAVIS" = "yes" ] ; then
     if [ "$USE_DKIM" = "no" -o "$USE_DKIM" = "" ] ; then
-	echo "Currently DKIM support has not been enabled"
+	echo -e "\nCurrently DKIM support has not been enabled"
 	echo "Do you want to enable any DKIM support"
 	yesorno
 	if [ $? -eq 0 ] ; then
 		while true ; do
-		    echo -n "Enter A (DKIM support from Amavis) or O (DKIM support from openDKIM): "
+		    echo -e -n "\nEnter A (DKIM support from Amavis) or O (DKIM support from openDKIM): "
 		    read answ
 		    case $answ in
 			"A"|"a" ) setpara USE_DKIM yes
@@ -1078,9 +1136,9 @@ if [ "$USE_AMAVIS" = "yes" ] ; then
 		done
 	fi
     else
-	[ "$USE_DKIM" = "yes" ] && echo "Currently DKIM support with Amavis has been enabled" && \
+	[ "$USE_DKIM" = "yes" ] && echo -e "\nCurrently DKIM support with Amavis has been enabled" && \
 	    echo "The alternative is openDKIM or none, asked for with answer no."
-	[ "$USE_DKIM" = "openDKIM" ] && echo "Currently DKIM support with openDKIM has been enabled" && \
+	[ "$USE_DKIM" = "openDKIM" ] && echo -e "\nCurrently DKIM support with openDKIM has been enabled" && \
 	    echo "The alternative is DKIM support in Amavis or none, asked for with answer no."
         echo "Is this OK?"
         yesorno
@@ -1105,7 +1163,12 @@ if [ "$USE_AMAVIS" = "yes" ] ; then
 		esac
 	    done
 	else
-	    [ ! -f /usr/sbin/opendkim ] && zypper in -y opendkim
+	    # USE_DKIM is yes or openDKIM
+	    if [ "$USE_DKIM" = "yes" ] ; then
+		[ -f /usr/sbin/opendkim ] && zypper rm -y opendkim
+	    else
+		[ ! -f /usr/sbin/opendkim ] && zypper in -y opendkim
+	    fi
 	fi
     fi
 else
@@ -1114,7 +1177,7 @@ else
 fi
 if [ "${USE_DKIM}" = "openDKIM" ] ; then
     if [ "$POSTFIX_DKIM_CONN" = "" -o "$POSTFIX_DKIM_CONN" = "socket" ] ; then
-	echo "Currently openDKIM will listen on socket /run/opendkim/opendkim.socket"
+	echo -e "\nCurrently openDKIM will listen on socket /run/opendkim/opendkim.socket"
 	echo "The alternative is to listen on localhost port 8891"
 	echo "Is the current setting OK?"
 	yesorno
@@ -1126,7 +1189,7 @@ if [ "${USE_DKIM}" = "openDKIM" ] ; then
 	    POSTFIX_DKIM_CONN="tcp"
 	fi
     else
-	echo "Currently openDKIM will listen on localhost port 8891"
+	echo -e "\nCurrently openDKIM will listen on localhost port 8891"
 	echo "The alternative is to listen on socket /run/opendkim/opendkim.socket"
         echo "Is the current setting OK?"
         yesorno
@@ -1144,7 +1207,7 @@ fi
 #
 if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
     if [ "$POSTFIX_DMARC_CHECKS" = "no" ] ; then
-	echo "Currently you do NOT want to check incoming email on port 25 on DMARC information"
+	echo -e "\nCurrently you do NOT want to check incoming email on port 25 on DMARC information"
 	echo "Is this OK?"
 	yesorno
 	if [ $? -ne 0 ] ; then
@@ -1152,7 +1215,7 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
             POSTFIX_DMARC_CHECKS="yes"
 	fi
     else
-	echo "Currently you want to check incoming email on port 25 on DMARC information"
+	echo -e "\nCurrently you want to check incoming email on port 25 on DMARC information"
 	echo "Is this OK?"
 	yesorno
 	if [ $? -ne 0 ] ; then
@@ -1164,17 +1227,21 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	if [ ! -e /etc/opendmarc.conf ] ; then
 	    if [ ! -e /etc/zypp/repos.d/server-mail.repo ] ; then
 		zypper ar https://download.opensuse.org/repositories/server:/mail/15.5/ server-mail
-		#zypper ar https://download.opensuse.org/repositories/devel:languages:perl/15.5/ devel-languages-perl
+		if [ "$OS" = "15.5" ] ; then
+		    zypper ar \
+			https://download.opensuse.org/repositories/home:/fdekruijf:/branches:/devel:/languages:/perl:/CPAN-D/15.5/ \
+			perl-fdekruijf
+		    zypper ref perl-fdekruijf
+		fi
 		zypper ref server-mail
-		#zypper ref devel-languages-perl
 	    else
 		zypper mr -e server-mail
-		#zypper mr -e devel-languages-perl
+		[ "$OS" = "15.5" ] && zypper mr -e perl-fdekruijf
 	    fi
 	    zypper in --allow-unsigned-rpm -y opendmarc
 	    # disable repository because a later zypper (d)up may cause problems
 	    zypper mr -d server-mail
-	    #zypper mr -d devel-languages-perl
+	    [ "$OS" = "15.5" ] && zypper mr -d perl-fdekruijf
 	fi
 	mkdir -p /etc/opendmarc
 	egrep -q '^# AuthservID name' /etc/opendmarc.conf
@@ -1238,21 +1305,21 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	[ $? -ne 0 ] && firewall-cmd --zone=public --add-interface=$interface
 	firewall-cmd --list-all --zone=public | grep -q smtp
 	[ $? -ne 0 ] && firewall-cmd --zone=public --add-service=smtp
-	firewall-cmd --list-all --zone=public | grep -q ' imaps '
-	[ $? -ne 0 ] && firewall-cmd --zone=public --add-service=imaps
+	firewall-cmd --list-all --zone=public | grep -q ' smtp-submission '
+	[ $? -ne 0 ] && firewall-cmd --zone=public --add-service=smtp-submission
 	firewall-cmd --list-all --zone=internal | grep -q "$localipdomain"
 	[ $? -ne 0 ] && firewall-cmd --zone=internal --add-source=$localipdomain
+	firewall-cmd --list-all --zone=internal | grep -q ' smtp '
+	[ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=smtp
 	firewall-cmd --list-all --zone=internal | grep -q ' smtp-submission '
 	[ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=smtp-submission
 	if [ "$POSTFIX_SMTP_AUTH_SERVICE" = "dovecot" ] ; then
+	    firewall-cmd --list-all --zone=public | grep -q ' imaps '
+	    [ $? -ne 0 ] && firewall-cmd --zone=public --add-service=imaps
 	    firewall-cmd --list-all --zone=internal | grep -q ' imap '
 	    [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=imap
 	    firewall-cmd --list-all --zone=internal | grep -q ' imaps '
 	    [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=imaps
-	    firewall-cmd --list-all --zone=internal | grep -q ' smtp '
-	    [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=smtp
-	    firewall-cmd --list-all --zone=internal | grep -q ' smtp-submission '
-	    [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=smtp-submission
 	fi
 	firewall-cmd --runtime-to-permanent
     fi
