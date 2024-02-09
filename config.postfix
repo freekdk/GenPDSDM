@@ -761,12 +761,16 @@ using \"off\" instead!"
 	#     $PCONF -e "smtp_tls_security_level = encrypt"
 	# fi
 	if [ -n "$POSTFIX_TLS_CAFILE" -a -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE" ]; then
-	    $PCONF -e "smtp_tls_CAfile = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE"
+	    #$PCONF -e "smtp_tls_CAfile = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CAFILE"
+	    # postfix recommends to not assign a value
+	    $PCONF -e "smtp_tls_CAfile ="
 	fi
 	$PCONF -e "smtp_tls_CApath = $POSTFIX_SSL_PATH/cacerts"
 	if [ -n "$POSTFIX_TLS_CERTFILE" ]; then
 	    if [ -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE" ]; then
-		$PCONF -e "smtp_tls_cert_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE"
+		#$PCONF -e "smtp_tls_cert_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_CERTFILE"
+		# postfix recommends to not assign a value
+		$PCONF -e "smtp_tls_cert_file ="
 	    else
 		warn_user 1>&2 "\t smtp_tls_cert_file (POSTFIX_SSL_PATH/POSTFIX_TLS_CERTFILE) does not exist!!\n"
 	    fi
@@ -775,7 +779,9 @@ using \"off\" instead!"
 	fi
 	if [ -n "$POSTFIX_TLS_KEYFILE" ]; then
 	    if [ -s "$POSTFIX_SSL_PATH/$POSTFIX_TLS_KEYFILE" ]; then
-		$PCONF -e "smtp_tls_key_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_KEYFILE"
+		#$PCONF -e "smtp_tls_key_file = $POSTFIX_SSL_PATH/$POSTFIX_TLS_KEYFILE"
+		# postfix recommends to not assign a value
+		$PCONF -e "smtp_tls_key_file ="
 	    else
 		warn_user 1>&2 "\t smtp_tls_key_file (POSTFIX_SSL_PATH/POSTFIX_TLS_KEYFILE) does not exist!!\n"
 	    fi
@@ -1899,7 +1905,7 @@ if [ -x /usr/sbin/amavisd ]; then
 	[ "$(systemctl is-active clamd.service)" != "active" ] && systemctl start clamd.service
 	sleep 5
 	[ "$(systemctl is-enabled amavis.service)" != "enabled" ] && systemctl enable amavis.service > /dev/null
-	sa-update
+	[ -x /usr/bin/sa-update ] && sa-update
 	[ "$USE_DKIM" = "yes" ] && [ $(ls /var/db/dkim/*.pem | wc -l) -ne 0 ] && chown vscan:root /var/db/dkim/*.pem
 	[ "$(systemctl is-active amavis.service)" != "active" ] && systemctl start amavis.service
     fi
