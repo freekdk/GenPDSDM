@@ -1,0 +1,38 @@
+#!/usr/bin/expect
+# send a test message via host:port in $1 with from in $2 to user@some in $3
+#  via PLAIN usern/password in $4 en datum in $5
+#
+set timeout 1
+set HOSTPORT [lindex $argv 0]
+set FROMAD [lindex $argv 1]
+set TOAD [lindex $argv 2]
+set USERPASS [lindex $argv 3]
+set DATE [lindex $argv 4]
+spawn openssl s_client -crlf -connect $HOSTPORT -starttls smtp -quiet
+expect "250 CHUNKING\r"
+send -- "HELO localhost\r"
+expect "250 CHUNKING\r"
+send -- "AUTH PLAIN $USERPASS\r"
+expect "235 2.7.0 Authentication successful\r"
+send -- "mail from:<$FROMAD>\r"
+expect "250 2.1.0 Ok"
+send -- "rcpt to:<$TOAD>\r"
+expect "250 2.1.0 Ok"
+send -- "data\r"
+expect "354 End data with <CR><LF>.<CR><LF>"
+send -- "Date: $DATE\r"
+send -- "From: $FROMAD\r"
+send -- "To: Freek de Kruijf <$TOAD>\r"
+send -- "Subject: test DKIM\r"
+send -- "MIME-Version: 1.0\r"
+send -- "Content-Type: text/plain; charset=us-ascii\r"
+send -- "Content-Transfer-Encoding: 7bit\r"
+send -- "\r"
+send -- "Test DKIM\r"
+send -- "\r"
+send -- ".\r"
+expect "Ok"
+send -- "QUIT\r"
+expect "Bye"
+expect eof
+
