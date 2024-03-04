@@ -45,7 +45,7 @@
 debug=1
 [ -e /etc/genpdsdm/genpdsdm.log ] && rm /etc/genpdsdm/genpdsdm.log
 comm="$0"
-dialog1='dialog --title "GenPDSDM" --begin 5 10'
+dialog1='dialog --title GenPDSDM --begin 5 10'
 exitmsg() {
     if [ $DIAL -eq 0 ] ; then
 	local n=$((${#1}/50))
@@ -59,9 +59,12 @@ exitmsg() {
 dlog() {
     [ $debug -eq 1 ] && echo "$1" >> /etc/genpdsdm/genpdsdm.log
 }
+# initialize NEW, OLD and DIAL as not activated
+NEW=1 ; OLD=1 ; DIAL=1
 grep -q "Tumbleweed" /etc/os-release && OS="openSUSE_Tumbleweed"
 grep -q "Leap 15.5" /etc/os-release && OS="15.5"
-grep -q "raspbian" /etc/os-release && OS="raspbian"
+egrep -q "raspbian|ID=debian" /etc/os-release && OS="raspbian"
+[ ! -x /usr/bin/dialog ] && apt-get -y install dialog
 [ "$OS" = "" ] && exitmsg "Only openSUSE Tumbleweed, Leap 15.5 and Raspbian are supported"
 #
 # /etc/genpdsdm/genpdsdm.log keeps track of what has been done during running the script
@@ -71,8 +74,6 @@ grep -q "raspbian" /etc/os-release && OS="raspbian"
 #
 mkdir -p /etc/genpdsdm
 [ -e /etc/genpdsdm/genpdsdm.history ] && . /etc/genpdsdm/genpdsdm.history
-# initialize NEW, OLD and DIAL as not activated
-NEW=1 ; OLD=1 ; DIAL=1
 help="\nUse genpdsdm [OPTIONS]\n\n\
 Generates configurations for Postfix, Dovecot, SPL, DKIM and DMARC from\n\
 scratch. When invoked for the first time all necessary packets will be\n\
@@ -205,7 +206,7 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
 	    cp -a /etc/genpdsdm/15-content_filter_mode.org /etc/amavis/conf.d/15-content_filter_mode
 	[ -e /etc/genpdsdm/20-debian_defaults.org ] && \
 	    cp -a /etc/genpdsdm/20-debian_defaults.org /etc/amavis/conf.d/20-debian_defaults
-	[ -e /etc/genpdsdm/amavis_conf.d_50-user.org ] cp -a /etc/genpdsdm/amavis_conf.d_50-user.org /etc/amavis/conf.d/50-user
+	[ -e /etc/genpdsdm/amavis_conf.d_50-user.org ] && cp -a /etc/genpdsdm/amavis_conf.d_50-user.org /etc/amavis/conf.d/50-user
     fi
     [ -e /etc/postfix/sasl_passwd ] && rm /etc/postfix/sasl_passwd
     [ -e /etc/genpdsdm/dkimtxtrecord.txt ] && rm /etc/genpdsdm/dkimtxtrecord.txt
@@ -433,9 +434,9 @@ if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_read" ] ; then
     [ -e /etc/postfix/sasl_passwd ] && rm /etc/postfix/sasl_passwd
     #
     message="Questions about the relay host of your provider\n\
-We assume the relay host is accessible via port 587 (submission)\n\
-and requires a user name and password.\n\
-An MX record for this name will not be used."
+We assume the relay host is accessible via port 587\n\
+(submission) and requires a user name and password.\n\
+An MX record for this name will not be used.\n\n"
     n=0
     while true ; do
 	if [ $DIAL -ne 0 ] ; then
@@ -443,18 +444,22 @@ An MX record for this name will not be used."
 	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$RELAYHOST" ] && /usr/bin/echo -e "\nA single Enter will take \"$RELAYHOST\" as its value"
 	    echo -n -e "\nPlease enter the name of the relayhost: "
 	    read relayhost
+	    [ -z $relayhost ] && relayhost="$RELAYHOST"
 	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$USERNAME" ] && /usr/bin/echo -e "\nA single Enter will take \"$USERNAME\" as its value"
 	    /usr/bin/echo -e -n "\nPlease enter your user name on the relay host, might be an e-mail address: "
 	    read username
+	    [ -z $username ] && username="$USERNAME"
 	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$PASSWORD" ] && /usr/bin/echo -e "\nA single Enter will take \"$PASSWORD\" as its value"
 	    echo -n -e "\nPlease enter the password of your account on the relay host: "
 	    read password
+	    [ -z $password ] && password="$PASSWORD"
 	else
-	    $dialog1 --form "${message}\n\
-The username may be an email address." $(($n+15)) 50 3 \
+	    [ $n -eq 0 ] && n=6
+	    $dialog1 --form "${message}\
+The username may be an email address." $(($n+9)) 65 3 \
 "Relayhost : " 1 5 "$RELAYHOST" 1 20 20 20 \
 "Username  : " 2 5 "$USERNAME" 2 20 20 20 \
-"Password  : " 3 5 "$PASSWORD" 3 20 20 20 2> /tmp/rup.tmp
+"Password  : " 3 5 "$PASSWORD" 3 20 20 20 2>/tmp/rup.tmp
             [ $? -ne 0 ] && exitmsg "Script aborted by user or other error"
 	    relayhost="$(head -1 /tmp/rup.tmp)"
             username="$(head -2 /tmp/rup.tmp | tail -1 )"
@@ -463,7 +468,7 @@ The username may be an email address." $(($n+15)) 50 3 \
 	fi
 	n=0
 	message=""
-        [ ! -z "$relayhost" ] && RELAYHOST="$relayhost"
+        RELAYHOST="$relayhost"
 	dlog "relayhost=$RELAYHOST"
 	if [ -z "$RELAYHOST" ] ; then
 	    message="The relay host is empty.\n" && n=$(($n+1))
@@ -472,21 +477,27 @@ The username may be an email address." $(($n+15)) 50 3 \
 	    rcrh=$?
 	    rhipaddress=$(grep "Address: " /tmp/relayhost | tail -1)
 	    [ $rcrh -ne 0 -o -z "$rhipaddress" ] && \
-		message="${message}The name \"$RELAYHOST\" does not seem to exist in a DNS.\n" && n=$(($n+1))
+		message="${message}The name \"$RELAYHOST\" does not seem to exist in a DNS.\n" && n=$(($n+2))
 	fi
-        [ ! -z "$username" ] && USERNAME="$username"
+        USERNAME="$username"
 	dlog "username=$USERNAME"
 	[ -z "$USERNAME" ] && message="${message}The user name is empty.\n" && n=$(($n+1))
-        [ ! -z "$password" ] && PASSWORD="$password"
+        PASSWORD="$password"
 	dlog "password=$PASSWORD"
 	[ -z "$PASSWORD" ] && message="${message}The password is empty.\n" && n=$(($n+1))
-	[ $n -eq 0 ] && break || message="${message}\n"
+	if [ $n -eq 0 ] ; then
+	    break
+	else
+	     message="${message}\n"
+	     n=$(($n+2))
+	fi
     done
     dlog "End asking relayhost etc."
     message="Questions about username and name administrator.\n\n\
-The account name of the administrator to be created or already\n\
-present in this server. In case it is created, the password for this\n\
-account will be 'genpdsdm', but as root you can easily change it.\n"
+The account name of the administrator to be created or\n\
+already present in this server. In case it is created, the\n\
+password for this account will be 'genpdsdm', but as root you\n\
+can easily change it.\n"
     n=0
     while true ; do
 	dlog "Asking for administrator etc."
@@ -494,28 +505,24 @@ account will be 'genpdsdm', but as root you can easily change it.\n"
 	if [ $DIAL -ne 0 ] ; then
 	    /usr/bin/echo -e "\n=====================\n"
 	    [ ! -z "$LUSERNAME" ] && message="${message}\nA single Enter will take \"$LUSERNAME\" as its value"
-	    echo -n -e "${message}\n\nPlease enter the account name : "
+	    /usr/bin/echo -e -n "${message}\n\nPlease enter the account name : "
 	    read lusername
+	    [ -z $lusername ] && lusername="$LUSERNAME"
 	    message=""
 	    [ ! -z "$NAME" ] && message="\nA single Enter will take \"$NAME\" as its value"
 	    message="${message}\nPlease enter the name of the administrator\n\
 for this account"
 	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}, like 'John P. Doe' : " || message="${message} : "
-	    echo -n -e "$message"
+	    /usr/bin/echo -e -n "$message"
 	    read name
+	    [ -z $name ] && name="$NAME"
 	else
-	    [ $n -eq 0 ] && message="${message}\n\
-The account name of the administrator and the\nfull name"
-	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}, like 'John P. Doe',"
-	    [ $n -eq 0 ] && message="${message} to be created or already\n\
-present in this server.\n\
-In case it is created, the password for this account will be\n\
-'genpdsdm', but as root you can easily change it."
-	    [ $n -eq 0 ] && m=15 || m=$(($n+9))
+	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}The full name is something like 'John P. Doe'."
+	    [ $n -eq 0 ] && m=14 || m=$(($n+10))
 	    $dialog1 --form "$message" $m 65 2 \
 "Account name administrator : " 1 5 "$LUSERNAME" 1 35 20 20 \
 "Full name                  : " 2 5 "$NAME" 2 35 20 20  2>/tmp/lu.tmp
-	    [ $? -ne 0 ] && exitmsg "Script aborted by user or other error."
+	    [ $? -ne 0 ] && exitmsg "Script aborted by user or other error in asking name administrator."
 	    lusername=$(head -1 /tmp/lu.tmp)
 	    name=$(tail -1 /tmp/lu.tmp)
 	    rm /tmp/lu.tmp
@@ -523,18 +530,23 @@ In case it is created, the password for this account will be\n\
 	fi
 	n=0
 	dlog "lusername=$lusername, name=$name"
-        [ ! -z "$lusername" ] && LUSERNAME="$lusername"
+        LUSERNAME="$lusername"
 	[ -z "$LUSERNAME" ] && message="The account name of the administator is empty.\n" && n=$(($n+1))
-        [ ! -z "$name" ] && NAME="$name"
-	[ -z "$NAME" ] && message="${message}The name, comment in /etc/passwd, is empty.\n" && n=$(($n+1))
-	[ $n -eq 0 ] && break || message="${message}Please try again.\n"
+        NAME="$name"
+	[ -z "$NAME" ] && message="${message}The full name, comment in /etc/passwd, is empty.\n" && n=$(($n+1))
+	if [ $n -eq 0 ] ; then
+	    break
+	else
+	    message="\n${message}Please try again.\n"
+	    n=$(($n+2))
+	fi
     done
     grep -q "$LUSERNAME" /etc/passwd
     if [ $? -eq 0 ] ; then
-	message="\nThe user \"$LUSERNAME\" already exists. The name as comment\n\
-may have changed and will be replaced.\n\
+	message="\nThe user \"$LUSERNAME\" already exists.\n\
+The name as comment may have changed and will be replaced.\n\
 The password will remain the same as it is."
-	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 6 0
+	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 7 65
        	[ $DIAL -eq 0 ] && sleep 5
         usermod -c "$NAME" "$LUSERNAME" > /dev/null
     else
@@ -543,23 +555,24 @@ The password will remain the same as it is."
     dlog "lusername=$LUSERNAME,name=$NAME"
     n=0
     message="\nWhen sending an email as this user the sender address\n\
-will be \"${LUSERNAME}@${DOMAINNAME}\"\n\
-You will have a canonical name like \"john.p.doe@${DOMAINNAME}\"."
+will currently be \"${LUSERNAME}@${DOMAINNAME}\"\n\
+This will be changed in a canonical name like \"john.p.doe@${DOMAINNAME}\"."
     [ $OLD -ne 0 ] && ENAME=""
     while true ; do
 	if [ $DIAL -ne 0 ] ; then
 	    [ $OLD -eq 0 -a ! -z "$ENAME" ] && message="${message}\nA single Enter will take \"$ENAME\" as its value"
             echo -n -e "${message}\nEnter the part you want before the @ : "
 	    read ename
+	    [ -z $ename ] && ename="$ENAME"
 	else
-	    $dialog1 --form "${message}" 9 0 1 "Part before @ : " 1 5 "$ENAME" 1 45 20 20 2> /tmp/fn.tmp
+	    $dialog1 --form "${message}" 11 0 1 "Part before @ : " 1 5 "$ENAME" 1 45 20 20 2> /tmp/fn.tmp
 	    [ $? -ne 0 ] && exitmsg "Script aborted on user request or other error."
 	    ename=$(head -1 /tmp/fn.tmp)
 	    rm /tmp/fn.tmp
 	fi
 	n=0
-        [ ! -z "$ename" ] && ENAME="$ename"
-	[ -z "$ENAME" ] && message="The part before the @ is empty. Please try again\n\n" && n=1
+        ENAME="$ename"
+	[ -z "$ENAME" ] && message="The part before the @ is empty.\n\nPlease try again\n" && n=1
 	[ $n -eq 0 ] && break
     done
     dlog "ename=$ENAME"
@@ -572,10 +585,11 @@ In certificates usually parameters like Country, State, Locality/City, Organizat
 and Organizational Unit are present.\n\
 The script will use \"Certificate Authority\" as the Organizational Unit\n\
 for the signing certificate and \"IMAP server\" and \"Email server\"\n\
-respectively for Dovecot and Postfix certificates\n"
+respectively for Dovecot and Postfix certificates.\n\
+Common Names (CN) will be imap.$DOMAINNAME and smtp.$DOMAINNAME.\n"
     n=0
     while true ; do
-	    if [ $OLD -ne 0 -a $n -eq 0 ] || [ $NEW -eq 0 -a $n -eq 0 ] ; then
+	if [ $OLD -ne 0 -a $n -eq 0 ] || [ $NEW -eq 0 -a $n -eq 0 ] ; then
             COUNTRYCODE=""
             STATEPROVINCE=""
             LOCALITYCITY=""
@@ -590,6 +604,7 @@ respectively for Dovecot and Postfix certificates\n"
 		message="${message}\nA single Enter will take \"$COUNTRYCODE\" as its value"
             echo -n -e "${message}\nEnter the two character country code: "
 	    read countrycode
+	    [ -z $countrycode ] && countrycode="$COUNTRYCODE"
 	    #
 	    # State or Province
 	    #
@@ -597,6 +612,7 @@ respectively for Dovecot and Postfix certificates\n"
 		echo "A single Enter will take \"$STATEPROVINCE\" as its value"
 	    echo -n "Enter the name of the STATE or PROVINCE: "
 	    read stateprovince
+	    [ -z $stateprovonce ] && stateprovince="$STATEPROVINCE"
 	    #
 	    # Locality or City
 	    #
@@ -604,6 +620,7 @@ respectively for Dovecot and Postfix certificates\n"
 		echo "A single Enter will take \"$LOCALITYCITY\" as its value"
 	    echo -n "Enter the name of the LOCALITY/CITY: "
 	    read localitycity
+	    [ -z $localitycity ] && localitycity="$LOCALITYCITY"
 	    #
 	    # Organization
 	    #
@@ -611,8 +628,10 @@ respectively for Dovecot and Postfix certificates\n"
 		echo "A single Enter will take \"$ORGANIZATION\" as its value"
 	    echo -n "Enter the name of the ORGANIZATION: "
 	    read organization
+	    [ -z $organization ] && organization="$ORGANIZATION"
 	else
-	    $dialog1 --form "${message}" $(($n+18)) 0 4 \
+	    [ $n -eq 0 ] && n=7
+	    $dialog1 --form "${message}" $(($n+9)) 0 4 \
 "Country code        : " 1 5 "$COUNTRYCODE" 1 27 20 20 \
 "State/Province      : " 2 5 "$STATEPROVINCE" 2 27 20 20 \
 "Locality/City       : " 3 5 "$LOCALITYCITY" 3 27 20 20 \
@@ -624,19 +643,30 @@ respectively for Dovecot and Postfix certificates\n"
 	    organization=$(tail -1 /tmp/cslo.tmp)
 	    rm /tmp/cslo.tmp
 	fi
+	n=0
 	dlog "countrycode=$countrycode, stateprovince=$stateprovince, localitycity=$localitycity, organization=$organization"
-	message="The following errors are found:\n"
-        [ ! -z "$countrycode" ] && COUNTRYCODE="$countrycode"
-        [ ! -z "$COUNTRYCODE" -a ${#COUNTRYCODE} -ne 2 ] && \
-	    message="${message}\nCountry code is empty or not length 2." && n=$(($n+1))
-	COUNTRYCODE=$(echo $COUNTRYCODE | tr [a-z] [A-Z])
-	[ ! -z "$stateprovince" ] && STATEPROVINCE="$stateprovince"
+	message=""
+        COUNTRYCODE="$countrycode"
+        if [ -z "$COUNTRYCODE" ] ; then
+	    message="${message}\nCountry code is empty."
+	    n=$(($n+1))
+	elif [ ${#COUNTRYCODE} -ne 2 ] ; then
+	    message="${message}\nCountry code is not length 2."
+	    n=$(($n+1))
+	fi
+	COUNTRYCODE=$(echo "$COUNTRYCODE" | tr [a-z] [A-Z])
+	STATEPROVINCE="$stateprovince"
 	[ -z "$STATEPROVINCE" ] && message="${message}\nState/Province is empty." && n=$(($n+1))
-        [ ! -z "$localitycity" ] && LOCALITYCITY="$localitycity"
+        LOCALITYCITY="$localitycity"
 	[ -z "$LOCALITYCITY" ] && message="${message}\nLocality/City is empty." && n=$(($n+1))
-        [ ! -z "$organization" ] && ORGANIZATION="$organization"
+        ORGANIZATION="$organization"
 	[ -z "$ORGANIZATION" ] && message="${message}\nName organization is empty." && n=$(($n+1))
-	[ $n -eq 0 ] && break
+	if [ $n -eq 0 ] ; then
+	    break
+	else
+	    message="The following errors are found:\n${message}"
+	    n=$(($n+1))
+	fi
     done
     dlog "== Parameters read; save parameters in history =="
     if [ -z "$PARAMETERS_read" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
@@ -740,6 +770,8 @@ if [ -z "$FIREWALL_config" ] ; then
 	firewall-cmd --zone=internal --add-source=$localdomain
     firewall-cmd --list-services --zone=internal | grep " imap "
     [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=imap
+    firewall-cmd --list-services --zone=internal | grep " imaps "
+    [ $? -ne 0 ] && firewall-cmd --zone=internal --add-service=imaps
     firewall-cmd --list-services --zone=public | grep -q " imaps "
     [ $? -ne 0 ] && firewall-cmd --zone=public --add-service=imaps
     firewall-cmd --runtime-to-permanent
