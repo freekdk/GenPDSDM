@@ -142,6 +142,7 @@ also possible."
 	apt-get -y install amavisd-new arj cabextract clamav-daemon lhasa libnet-ldap-perl libsnmp-perl lzop\
 	    nomarch rpm libcrypt-des-perl clamav-freshclam clamav-docs firewalld pyzor razor bind9-dnsutils dialog
 	usermod -G amavis clamav
+	[ -e /usr/share/dovecot/dh.pem ] && cp -a /usr/share/dovecot/dh.pem /etc/genpdsdm/
     fi
     mkdir -p /etc/opendmarc
     if [ ! -e /etc/opendmarc/ignore.hosts ] ; then
@@ -292,7 +293,7 @@ existance of a DNS for this domain with a MX records for the domain.\n\
 The MX record should point to smtp.<domain_name> or mail.<domain_name>,\n\
 which both should have an A record. Also an imap.<domain_name> A record\n\
 should exist, all with the same IP address." 15 0 2 \
-"Hostname :    " 1 1 "" 1 18 10 10 \
+"Hostname :    " 1 1 "" 1 18 15 15 \
 "Domain name : " 2 1 "" 2 18 25 25 2> /tmp/u.tmp
             [ $? -ne 0 ] && exitmsg "Script canceled by user or other error"
             HOSTNAME="$(head -1 /tmp/u.tmp)"
@@ -311,7 +312,7 @@ should exist, all with the same IP address." 15 0 2 \
 ============================================\n\
 = Checking for existing records in the DNS =\n\
 ============================================"
-    [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 5 0
+    [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 7 0
     [ $DIAL -eq 0 ] && sleep 5
     message="Errors found by checking:"
     n=0
@@ -329,7 +330,7 @@ should exist, all with the same IP address." 15 0 2 \
 	message="$message\n\n\
 Please provide the required records in the DNS for domain\n\
 \"$DOMAINNAME\"\n and start the script again."
-	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" $(($n*2+6)) 0
+	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" $(($n*2+8)) 60
 	exit 1
     fi
     gipaddress=$(grep 'Address:' /tmp/Adomain | tail -1)
@@ -392,7 +393,7 @@ Is this OK?"
 	/usr/bin/echo -e -n "${message}\n\nEnter y or Y for OK, anything else is NO and the script will terminate : "
 	read answ
     else
-	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 6 0
+	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 10 60
 	[ $? -eq 0 ] && answ="y"
     fi
     case $answ in
@@ -565,7 +566,7 @@ This will be changed in a canonical name like \"john.p.doe@${DOMAINNAME}\"."
 	    read ename
 	    [ -z $ename ] && ename="$ENAME"
 	else
-	    $dialog1 --form "${message}" 11 0 1 "Part before @ : " 1 5 "$ENAME" 1 45 20 20 2> /tmp/fn.tmp
+	    $dialog1 --form "${message}" 11 0 1 "Part before @ : " 1 5 "$ENAME" 1 30 20 20 2> /tmp/fn.tmp
 	    [ $? -ne 0 ] && exitmsg "Script aborted on user request or other error."
 	    ename=$(head -1 /tmp/fn.tmp)
 	    rm /tmp/fn.tmp
