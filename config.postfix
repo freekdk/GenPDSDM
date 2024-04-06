@@ -348,9 +348,9 @@ gen_main_cf(){
     $PCONF -e "sender_canonical_maps = $DEF_DB_TYPE:/etc/postfix/sender_canonical"
     $PCONF -e "masquerade_exceptions = root"
     $PCONF -e "masquerade_classes = envelope_sender, header_sender, header_recipient"
-    if [ -n "${FQHOSTNAME}" ]; then
-	$PCONF -e "myhostname = $FQHOSTNAME"
-	domain=${FQHOSTNAME#*.}
+    if [ -n "${POSTFIX_SSL_COMMON_NAME}" ]; then
+	$PCONF -e "myhostname = $POSTFIX_SSL_COMMON_NAME"
+	domain=${POSTFIX_SSL_COMMON_NAME#*.}
 	$PCONF -e "mydomain = $domain"
 	$PCONF -e 'smtpd_sasl_local_domain = $myhostname'
     fi
@@ -399,7 +399,7 @@ gen_main_cf(){
     if test -z "$POSTFIX_LOCALDOMAINS"; then
         if [ -n "${FQHOSTNAME}" ]; then
 	    if [ -n "$POSTFIX_SSL_COMMON_NAME" -a "$POSTFIX_SSL_COMMON_NAME" != "$FQHOSTNAME" ] ; then
-		$PCONF -e "mydestination = \$myhostname, localhost.\$mydomain, \$mydomain, $POSTFIX_SSL_COMMON_NAME, localhost"
+		$PCONF -e "mydestination = \$myhostname, localhost.\$mydomain, \$mydomain, ${FQHOSTNAME%$domain}\$mydomain, localhost"
 	    else
 		$PCONF -e 'mydestination = $myhostname, localhost.$mydomain, $mydomain, localhost'
 	    fi
@@ -407,12 +407,13 @@ gen_main_cf(){
             $PCONF -e 'mydestination = $myhostname, localhost.$mydomain'
         fi
     else
-	if [ -n "${FQHOSTNAME}" ]; then
-	    md="$(echo mydestination = $POSTFIX_LOCALDOMAINS | sed s/$FQHOSTNAME/\$myhostname/ | sed s/$domain/\$mydomain/g )"
-	    $PCONF -e "$md"
+	if [ -n "${POSTFIX_SSL_COMMON_NAME}" ]; then
+	    md="$(echo mydestination = $POSTFIX_LOCALDOMAINS | sed s/$POSTFIX_SSL_COMMON_NAME/\$myhostname/ | \
+		sed s/$domain/\$mydomain/g )"
 	else
-            $PCONF -e "mydestination = $POSTFIX_LOCALDOMAINS"
+	    md="$(echo mydestination = $POSTFIX_LOCALDOMAINS | sed s/$domain/\$mydomain/g )"
 	fi
+	$PCONF -e "$md"
     fi
 
     # this overrides the previous
@@ -973,10 +974,11 @@ while( <MNCF> ) {
 	    $line = $1;
 	}
     } elsif ( /^(relay_domains\s=\s).*/ ) {
+        # since postfix >= 3.0 only real domains to be relayed are needed, so no mydestination
 	if ($with_mysql ne "yes") {
-	    $line = $1."\$mydestination $def_db_type:/etc/postfix/relay $pf_relay_domains";
+	    $line = $1."$def_db_type:/etc/postfix/relay $pf_relay_domains";
 	} else {
-	    $line = $1."\$mydestination $def_db_type:/etc/postfix/relay mysql:/etc/postfix/mysql_relay_domains_maps.cf $pf_relay_domains";
+	    $line = $1."$def_db_type:/etc/postfix/relay mysql:/etc/postfix/mysql_relay_domains_maps.cf $pf_relay_domains";
 	}
     } elsif ( /^(relay_recipient_maps\s=\s).*/ ) {
 	if ($is_backupmx ne "yes") {

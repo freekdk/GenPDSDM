@@ -63,9 +63,10 @@ dlog() {
 NEW=1 ; OLD=1 ; DIAL=1
 grep -q "Tumbleweed" /etc/os-release && OS="openSUSE_Tumbleweed"
 grep -q "Leap 15.5" /etc/os-release && OS="15.5"
+grep -q "Leap 15.6" /etc/os-release && OS="15.6"
 egrep -q "raspbian|ID=debian" /etc/os-release && OS="raspbian"
 [ ! -x /usr/bin/dialog ] && apt-get -y install dialog
-[ "$OS" = "" ] && exitmsg "Only openSUSE Tumbleweed, Leap 15.5 and Raspbian are supported"
+[ "$OS" = "" ] && exitmsg "Only openSUSE Tumbleweed, Leap 15.5/15.6 and Raspbian are supported"
 #
 # /etc/genpdsdm/genpdsdm.log keeps track of what has been done during running the script
 # /etc/genpdsdm/genpdsdm.history keeps the history of already executed parts of this script
@@ -108,7 +109,7 @@ fi
 # Install the required packages
 #
 dlog "== Starting Installation =="
-if [ -z "${INSTALLATION_done}" ] ; then
+if [ -z "$INSTALLATION_done" ] ; then
     if [ $OS != raspbian ] ; then 
 	# Check if this a clean system
 	if [ -e /etc/zypp/repos.d/postfix-policyd-spf-perl.repo ] ; then
@@ -123,13 +124,14 @@ also possible."
 	    lz4 p7zip-full rzsz clamav bind-utils
 	zypper in  -y --recommends amavisd-new
 	if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
-	    zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$os/ postfix-policyd-spf-perl
+	    zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$OS/ postfix-policyd-spf-perl
 	    zypper in -y postfix-policyd-spf-perl
 	    # disable repository for not having conflicts during updates
 	    zypper mr -d postfix-policyd-spf-perl
 	fi
 	if [ ! -e /etc/zypp/repos.d/mail-server ] ; then
-	    zypper ar https://download.opensuse.org/repositories/server:/mail/$os/ server-mail
+	    [ $OS = 15.6 ] && OSl=15.5 || OSl=$OS
+	    zypper ar https://download.opensuse.org/repositories/server:/mail/$OSl/ server-mail
 	    zypper in -y opendmarc
 	    # disable repository for not having conflicts during updates
             zypper mr -d server-mail
@@ -173,7 +175,7 @@ also possible."
     cp -a /etc/dovecot/conf.d/10-mail.conf /etc/genpdsdm/10-mail.conf.org
     #cp -a /usr/share/dovecot/dovecot-openssl.cnf /etc/genpdsdm/dovecot-openssl.cnf.org
     if [ $OS != raspbian ] ; then
-	cp -a /etc/amavis.conf /etc/genpdsdm/amavis.conf.org
+	cp -a /etc/amavisd.conf /etc/genpdsdm/amavisd.conf.org
     else
 	cp -a /etc/amavis/conf.d/05-node_id /etc/genpdsdm/05-node_id.org
 	cp -a /etc/amavis/conf.d/05-domain_id /etc/genpdsdm/05-domain_id.org
@@ -244,6 +246,7 @@ message="\
 [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox  "$message" 5 0
 [ $DIAL -eq 0 ] && sleep 3
 HOSTNAME="$(cat /etc/hostname)"
+DOMAINNAME=""
 count=0
 if [ ! -z "$HOSTNAME" ] ; then
     grep "$HOSTNAME" /etc/hosts > /tmp/hosts
@@ -252,14 +255,14 @@ if [ ! -z "$HOSTNAME" ] ; then
 #	mv /tmp/hostsn /tmp/hosts
 #    fi
     [ -e /tmp/hosts ] && count=$(cat /tmp/hosts | wc -l)
-    [ $count -ne 1 ] && rm /tmp/hosts && exitmsg "There is more than 1 line in /etc/hosts with the text \"$HOSTNAME\"\n\
+    [ $count -gt 1 ] && rm /tmp/hosts && exitmsg "There is more than 1 line in /etc/hosts with the text \"$HOSTNAME\"\n\
 You should not have changed anything in /etc/hosts before running this script."
-    DOMAINNAME=$(cat /tmp/hosts | tr "\t" " ")
-    DOMAINNAME=${DOMAINNAME% *}
-    DOMAINNAME=${DOMAINNAME#* }
-    DOMAINNAME=${DOMAINNAME#*.}
-else
-    DOMAINNAME=""
+    if [ $count -eq 1 ] ; then
+	DOMAINNAME=$(cat /tmp/hosts | tr "\t" " ")
+	DOMAINNAME=${DOMAINNAME% *}
+	DOMAINNAME=${DOMAINNAME#* }
+	DOMAINNAME=${DOMAINNAME#*.}
+    fi
 fi
 [ -e /tmp/hosts ] && rm /tmp/hosts
 dlog "count=$count, domain name=$DOMAINNAME, host name=$HOSTNAME"
@@ -359,14 +362,10 @@ Please fix it!"
     hostip=${hostip%% *}
     grep -q "$hostip" /etc/hosts
     [ $? -eq 0 ] && sed -i "/$hostip/d" /etc/hosts
-    if [ $OS != raspbian ] ; then
-	#
-	# Insert the entry in /etc/hosts after line with 127.0.0.1[[:blank:]]+localhost\.localdomain
-	#
-	sed -i -E "/^127.0.0.1[[:blank:]]+localhost\.localdomain/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
-    else
-	sed -i -E "/^127.0.0.1[[:blank:]]+localhost/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
-    fi
+    #
+    # Insert the entry in /etc/hosts after line with 127.0.0.1[[:blank:]]+localhost
+    #
+    sed -i -E "/^127.0.0.1[[:blank:]]+localhost\.localdomain/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
     dlog "IP address and hostname entered in /etc/hosts"
     echo $HOSTNAME > /etc/hostname
     nslookup -query=AAAA smtp.$DOMAINNAME > /tmp/AAAAdomain
@@ -449,11 +448,11 @@ An MX record for this name will not be used.\n\n"
 	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$USERNAME" ] && /usr/bin/echo -e "\nA single Enter will take \"$USERNAME\" as its value"
 	    /usr/bin/echo -e -n "\nPlease enter your user name on the relay host, might be an e-mail address: "
 	    read username
-	    [ -z $username ] && username="$USERNAME"
+	    [ -z "$username" ] && username="$USERNAME"
 	    [ $OLD -eq 0 -o $n -ne 0 -a ! -z "$PASSWORD" ] && /usr/bin/echo -e "\nA single Enter will take \"$PASSWORD\" as its value"
 	    echo -n -e "\nPlease enter the password of your account on the relay host: "
 	    read password
-	    [ -z $password ] && password="$PASSWORD"
+	    [ -z "$password" ] && password="$PASSWORD"
 	else
 	    [ $n -eq 0 ] && n=6
 	    $dialog1 --form "${message}\
@@ -508,7 +507,7 @@ can easily change it.\n"
 	    [ ! -z "$LUSERNAME" ] && message="${message}\nA single Enter will take \"$LUSERNAME\" as its value"
 	    /usr/bin/echo -e -n "${message}\n\nPlease enter the account name : "
 	    read lusername
-	    [ -z $lusername ] && lusername="$LUSERNAME"
+	    [ -z "$lusername" ] && lusername="$LUSERNAME"
 	    message=""
 	    [ ! -z "$NAME" ] && message="\nA single Enter will take \"$NAME\" as its value"
 	    message="${message}\nPlease enter the name of the administrator\n\
@@ -516,7 +515,7 @@ for this account"
 	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}, like 'John P. Doe' : " || message="${message} : "
 	    /usr/bin/echo -e -n "$message"
 	    read name
-	    [ -z $name ] && name="$NAME"
+	    [ -z "$name" ] && name="$NAME"
 	else
 	    [ $n -eq 0 -a -z "$NAME" ] && message="${message}The full name is something like 'John P. Doe'."
 	    [ $n -eq 0 ] && m=14 || m=$(($n+10))
@@ -613,7 +612,7 @@ Common Names (CN) will be imap.$DOMAINNAME and smtp.$DOMAINNAME.\n"
 		echo "A single Enter will take \"$STATEPROVINCE\" as its value"
 	    echo -n "Enter the name of the STATE or PROVINCE: "
 	    read stateprovince
-	    [ -z $stateprovonce ] && stateprovince="$STATEPROVINCE"
+	    [ -z "$stateprovince" ] && stateprovince="$STATEPROVINCE"
 	    #
 	    # Locality or City
 	    #
@@ -621,7 +620,7 @@ Common Names (CN) will be imap.$DOMAINNAME and smtp.$DOMAINNAME.\n"
 		echo "A single Enter will take \"$LOCALITYCITY\" as its value"
 	    echo -n "Enter the name of the LOCALITY/CITY: "
 	    read localitycity
-	    [ -z $localitycity ] && localitycity="$LOCALITYCITY"
+	    [ -z "$localitycity" ] && localitycity="$LOCALITYCITY"
 	    #
 	    # Organization
 	    #
@@ -629,7 +628,7 @@ Common Names (CN) will be imap.$DOMAINNAME and smtp.$DOMAINNAME.\n"
 		echo "A single Enter will take \"$ORGANIZATION\" as its value"
 	    echo -n "Enter the name of the ORGANIZATION: "
 	    read organization
-	    [ -z $organization ] && organization="$ORGANIZATION"
+	    [ -z "$organization" ] && organization="$ORGANIZATION"
 	else
 	    [ $n -eq 0 ] && n=7
 	    $dialog1 --form "${message}" $(($n+9)) 0 4 \

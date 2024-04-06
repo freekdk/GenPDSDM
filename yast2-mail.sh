@@ -137,7 +137,7 @@ if [ "$isendmail" != "i" -a "$ipostfix" != "i" ] ; then
 	answ=${answ:0:1}
 	case $answ in
 	    "P"|"p" )
-		    [ ! -f /etc/zypp/repos.d/postfix-fdekruijf.repo ] &&zypper ar \
+		    [ ! -f /etc/zypp/repos.d/postfix-fdekruijf.repo ] && zypper ar \
 			https://download.opensuse.org/repositories/home:/fdekruijf:/branches:/server:/mail/$OS/ \
 			postfix-fdekruijf
 		    zypper in -y postfix telnet
@@ -171,6 +171,7 @@ EOF
 fi
 #
 [ ! -x /usr/bin/telnet ] && zypper in -y telnet
+[ ! -x /usr/bin/openssl ] && zypper in -y openssl
 # Source /etc/sysconfig/postfix
 #
 [ -f /etc/sysconfig/postfix ] && source /etc/sysconfig/postfix
@@ -442,7 +443,8 @@ if [ $? -eq 0 ] ; then
     if [ -z "$USE_AMAVIS" -o "$USE_AMAVIS" = "no" ] ; then
 	if [ ! -f /etc/amavisd.conf ] ; then
 	    echo "AMaVis and corresponding packages will be installed"
-	    zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+	    zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 7zip lrzip
+	    [ -z $(find /usr/lib/perl5/vendor_perl -name Socket6.so) ] && zypper in -y perl-Socket6
 	    # Start freshclam now so it is hopefully ready when clamd starts
 	    systemctl start freshclam.service
 	fi
@@ -452,7 +454,7 @@ if [ $? -eq 0 ] ; then
 	if [ ! -f /etc/amavisd.conf ] ; then
 	    #should not happen, just to sure
             echo "AMaVis and corresponding packages will be installed"
-            zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+            zypper in -y amavisd-new spamassassin clamav clzip rzip melt lz4 7zip lrzip
             # Start freshclam now so it is hopefully ready when clamd starts
             systemctl start freshclam.service
         fi
@@ -461,11 +463,11 @@ else
     if [ -z "$USE_AMAVIS" -o "$USE_AMAVIS" = "no" ] ; then
 	if [ -f /etc/amavisd.conf ] ; then
 	    # should not happen
-	    zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+	    zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 7zip lrzip
 	fi
     else
 	if [ -f /etc/amavisd.conf ] ; then
-            zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 p7zip-full rzsz
+            zypper rm -u -y amavisd-new spamassassin clamav clzip rzip melt lz4 7zip lrzip
         fi
 	setpara USE_AMAVIS no
 	USE_AMAVIS="no"
@@ -1095,15 +1097,26 @@ if [ "$SMTPD_LISTEN_REMOTE" = "yes" ] ; then
 	fi
     fi
     if [ "$POSTFIX_SPF_CHECKS" = "yes" ] ; then
-	if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl.repo ] ; then
-	    zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/15.4/ postfix-policyd-spf-perl
-	    zypper ref postfix-policyd-spf-perl
+	if [ ! -e /etc/zypp/repos.d/RPMS.repo ] ; then
+	    cat <<EOF > /etc/zypp/repos.d/RPMS.repo    
+[RPMS]
+name=RPMS
+enabled=1
+autorefresh=0
+baseurl=dir:/root/RPMS
+path=/
+type=plaindir
+keeppackages=0
+EOF
+	    [ ! -d /root/RPMS ] && mkdir -p /root/RPMS
+	    spf="postfix-policyd-spf-perl-2.010-lp150.4.1.noarch.rpm"
+	    [ ! -e /root/RPMS/$spf ] && curl -o /root/RPMS/$spf \
+		ftp://ftp.pbone.net/mirror/ftp5.gwdg.de/pub/opensuse/repositories/home:/rudi_m:/musthave/openSUSE_Leap_15.0/noarch/$spf
+	    zypper ref RPMS
 	fi
 	if [ ! -e /usr/lib/policyd-spf-perl ] ; then
-	    zypper mr -e postfix-policyd-spf-perl
-	    zypper in -y postfix-policyd-spf-perl
-	    # disable the repository, because a future zypper (d)up may have problems
-	    zypper mr -d postfix-policyd-spf-perl
+	    echo "You need to choose i (ignore) to install this packet"
+	    zypper in --allow-unsigned-rpm postfix-policyd-spf-perl
 	fi
     fi
 else

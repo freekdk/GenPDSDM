@@ -17,3 +17,4 @@ sysconfig.mail.sav
 sysconfig.postfix.sav
 .~lock.genmailmodule.odt#
 \[pfx\]\ Re_What\ features\ to\ deprecate.mbox
+testdkim.exp.new

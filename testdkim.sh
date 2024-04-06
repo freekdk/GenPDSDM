@@ -2,7 +2,14 @@
 # insert DKIM test email message in submission port 587
 # after that inspect the recieved message for presence of a DKIM item in the header
 #
-[ ! -x /usr/bin/expect ] && apt install expect
+if [ ! -x /usr/bin/expect ] ; then
+    grep opensuse /etc/os-
+    if [ $? -eq 0 ] ; then
+	sudo zypper in expect
+    else
+	apt install expect
+    fi
+fi
 echo "Script to test generation of DKIM item in outgoing email via submission port 587"
 echo "It needs the domain name you used to generate the DKIM certificate,"
 echo "the user name of a user on this system and its password. You will be prompted"
