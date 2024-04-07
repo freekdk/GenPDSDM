@@ -867,6 +867,7 @@ if [ -z "$MASTERCF_done" -o $NEW -eq 0 ] ; then
      /milter_macro_daemon_name=ORIGINATING/a\   -o disable_vrfy_command=yes
      }
 /^#localhost:10025 inet/,/^#  -o relay_recipient_maps=/ s/#//
+/^#tlsmgr    unix/ s/#//
 EOF
     else
 	cat <<EOF > /tmp/sedscript.txt
