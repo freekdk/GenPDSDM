@@ -119,12 +119,13 @@ first, the 5 involved packages and the non-standard repositories is\n\
 also possible."
 	fi
 	[ "$OS" = "openSUSE_Tumbleweed" ] && zypper dup -y
-	[ "$OS" = "15.5" ] && zypper up -y
+	[ "${OS:0:3}" = "15." ] && zypper up -y
 	zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
-	    lz4 p7zip-full rzsz clamav bind-utils
+	    lz4 p7zip-full rzsz clamav bind-utils openssl cyrus-sasl-plain perl-Socket6
 	zypper in  -y --recommends amavisd-new
 	if [ ! -e /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
 	    zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$OS/ postfix-policyd-spf-perl
+	    zypper ref
 	    zypper in -y postfix-policyd-spf-perl
 	    # disable repository for not having conflicts during updates
 	    zypper mr -d postfix-policyd-spf-perl
@@ -132,7 +133,7 @@ also possible."
 	if [ ! -e /etc/zypp/repos.d/mail-server ] ; then
 	    [ $OS = 15.6 ] && OSl=15.5 || OSl=$OS
 	    zypper ar https://download.opensuse.org/repositories/server:/mail/$OSl/ server-mail
-	    zypper in -y opendmarc
+	    zypper in opendmarc
 	    # disable repository for not having conflicts during updates
             zypper mr -d server-mail
 	fi
@@ -365,7 +366,7 @@ Please fix it!"
     #
     # Insert the entry in /etc/hosts after line with 127.0.0.1[[:blank:]]+localhost
     #
-    sed -i -E "/^127.0.0.1[[:blank:]]+localhost\.localdomain/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
+    sed -i -E "/^127.0.0.1[[:blank:]]+localhost/ a $hostip\t$HOSTNAME.$DOMAINNAME $HOSTNAME" /etc/hosts
     dlog "IP address and hostname entered in /etc/hosts"
     echo $HOSTNAME > /etc/hostname
     nslookup -query=AAAA smtp.$DOMAINNAME > /tmp/AAAAdomain
