@@ -59,7 +59,7 @@ exitmsg() {
     exit 1
 }
 dlog() {
-    [ $debug -eq 0 ] && echo "$1" >> $LOGFILE
+    [ $debug -eq 0 ] && do_log ">>DEBUG>> $1"
 }
 #
 # wrren: write or renew parameter - might be an indexed parameter - in file parameters
@@ -94,13 +94,16 @@ outlog() {
 
 # write log
 do_log() {
-  if [ ! -f ${LOGFILE} ]; then
+  if [ ! -f ${LOGFILE} ] ; then
     touch ${LOGFILE}
     chmod 600 ${LOGFILE}
     outlog "Log ${LOGFILE} started."
-    outlog "ATTENTION: the log file contains sensitive information (e.g. passwords, "
+    outlog "ATTENTION: the log file contains sensitive information (e.g. passwords) "
+    outlog "Handle with care and sanitize before sharing."
+    echo -n "Press Enter to continue: "
+    read answ
   fi
-  echo "$(date +'%Y-%m-%d_%H%M%S') ### ${*}" >>${LOGFILE}
+  echo "$(date +'%Y-%m-%d_%H%M%S') ### ${*}" >> ${LOGFILE}
 }
 
 # execute and log
@@ -132,14 +135,11 @@ fi
 #
 # initialize the parameters file of the script or read the parameters to skip what has been done
 #
-if [ ! -f ${0%/*}/openssl_postfix.conf.in ] ; then
-    echo -e "\
+[ ! -f ${0%/*}/openssl_postfix.conf.in ] && exitmsg "\
 ===============================================================\n\
 The file ${0%/*}/openssl_postfix.conf.in is missing.\n\
 Please provide this file!! The script will exit!!\n\
 ==============================================================="
-    exit 1
-fi
 [ ! -d /var/adm/backup/genpdsdm ] && mkdir -p /var/adm/backup/genpdsdm
 #
 # read the parameters file if present and set the available parameters
@@ -210,8 +210,8 @@ also possible."
 	fi
 	[ "$OS" = "openSUSE_Tumbleweed" ] && run 'zypper dup -y'
 	[ "${OS:0:3}" = "15." ] && run 'zypper up -y'
-	run 'zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
-	    lz4 p7zip-full clamav bind-utils openssl cyrus-sasl-plain perl-Socket6'
+	run "zypper in -y --no-recommends postfix telnet dovecot spamassassin clzip rzip melt cabextract\
+	    lz4 p7zip-full clamav bind-utils openssl cyrus-sasl-plain perl-Socket6"
 	run 'zypper in  -y --recommends amavisd-new'
 	if [ ! -f /etc/zypp/repos.d/postfix-policyd-spf-perl ] ; then
 	    run "zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$OS/ postfix-policyd-spf-perl"
@@ -221,11 +221,6 @@ also possible."
 	    run 'zypper mr -d postfix-policyd-spf-perl'
 	fi
 	[ $OS = 15.6 ] && OSl=15.5 || OSl=$OS
-	if [ "${OS:0:3}" = "15." -a ! -f /etc/zypp/repos.d/lang-perl.repo ] ; then
-	    run "zypper ar https://download.opensuse.org/repositories/home:fdekruijf:branches:devel:languages:perl:CPAN-D/$OSl/ lang-perl"
-	    zypper ref
-#	    run 'zypper in -y perl-Domain-PublicSuffix'
-	fi
 	if [ ! -f /etc/zypp/repos.d/mail-server ] ; then
 	    run "zypper ar https://download.opensuse.org/repositories/server:/mail/$OSl/ server_mail"
 	    zypper ref server_mail
@@ -236,10 +231,14 @@ also possible."
     else
 	run 'apt-get -y update'
 	run 'apt-get -y upgrade'
-	run 'debconf-set-selections postfixsettings.txt'
-	run 'apt-get -y install postfix dovecot-imapd postfix-policyd-spf-perl spamassassin opendmarc'
-	run 'apt-get -y install amavisd-new arj cabextract clamav-daemon lhasa libnet-ldap-perl libsnmp-perl lzop\
-	    nomarch rpm libcrypt-des-perl clamav-freshclam clamav-docs firewalld pyzor razor bind9-dnsutils dialog'
+	run 'debconf-set-selections ${0%/*}/postfixsettings.txt'
+	run 'DEBIAN_FRONTEND=noninteractive apt-get -yqq install postfix'
+	run 'debconf-set-selections ${0%/*}/opendmarcsettings.txt'
+      	run 'DEBIAN_FRONTEND=noninteractive apt-get -yqq install opendmarc'
+#      	apt-get install opendmarc
+	run 'apt-get -y install dovecot-imapd postfix-policyd-spf-perl spamassassin'
+	run "apt-get -y install amavisd-new arj cabextract clamav-daemon lhasa libnet-ldap-perl libsnmp-perl lzop\
+	    nomarch rpm libcrypt-des-perl clamav-freshclam clamav-docs firewalld pyzor razor bind9-dnsutils dialog"
 	run 'usermod -G amavis clamav'
 	[ -f /usr/share/dovecot/dh.pem ] && cp -a /usr/share/dovecot/dh.pem /etc/genpdsdm/
     fi
@@ -266,11 +265,6 @@ also possible."
     [ -f /etc/postfix/sender_dependent_default_transport ] && \
 	cp -a /etc/postfix/sender_dependent_default_transport /var/adm/backup/genpdsdm/sender_dependent_default_transport.org
     [ -f /etc/postfix/tls_per_site ] && cp -a /etc/postfix/tls_per_site /var/adm/backup/genpdsdm/tls_per_site.org
-    if [ $OS != raspbian ] ; then 
-	cp -a /etc/postfix/canonical /var/adm/backup/genpdsdm/canonical.org
-    else
-	touch /var/adm/backup/genpdsdm/canonical.org
-    fi
     cp -a /etc/dovecot/dovecot.conf /var/adm/backup/genpdsdm/dovecot.conf.org
     cp -a /etc/dovecot/conf.d/10-ssl.conf /var/adm/backup/genpdsdm/10-ssl.conf.org
     cp -a /etc/dovecot/conf.d/10-master.conf /var/adm/backup/genpdsdm/10-master.conf.org
@@ -301,7 +295,6 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
     [ -f /var/adm/backup/genpdsdm/sender_dependent_default_transport.org ] && \
 	cp -a /var/adm/backup/genpdsdm/sender_dependent_default_transport.org /etc/postfix/sender_dependent_default_transport
     [ -f /var/adm/backup/genpdsdm/tls_per_site.org ] && cp -a /var/adm/backup/genpdsdm/tls_per_site.org /etc/postfix/tls_per_site
-    [ -f /var/adm/backup/genpdsdm/canonical.org ] && cp -a /var/adm/backup/genpdsdm/canonical.org /etc/postfix/canonical
     [ -f /var/adm/backup/genpdsdm/dovecot.conf.org ] && cp -a /var/adm/backup/genpdsdm/dovecot.conf.org /etc/dovecot/dovecot.conf
     [ -f /var/adm/backup/genpdsdm/10-ssl.conf.org ] && cp -a /var/adm/backup/genpdsdm/10-ssl.conf.org /etc/dovecot/conf.d/10-ssl.conf
     [ -f /var/adm/backup/genpdsdm/10-master.conf.org ] && cp -a /var/adm/backup/genpdsdm/10-master.conf.org /etc/dovecot/conf.d/10-master.conf
@@ -324,16 +317,17 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
     #
     # With OLD or NEW true all generation needs to be done again
     #
-    for par in MAINCF_done MASTERCF_done POSTFIXCERTIFICATES_done DOVECOT_done CERTIFICATEDOVECOT_done AMAVIS_done DMARC_done ; do
+    for par in MAINCF_done MASTERCF_done POSTFIXCERTIFICATES_done DOVECOT_done CERTIFICATEDOVECOT_done AMAVIS_done DMARC_done
+    do
 	sed -i "/^$par/ d" /etc/genpdsdm/parameters
 	unset $par
     done
     if [ $NEW -eq 0 ] ; then
 	#
-	# clear all parameters and get these again
+	# clear all parameters and ask these again
 	#
 	for par in PARAMETERS_done COUNTRYCODE STATEPROVINCE LOCALITYCITY ORGANIZATION RELAYHOST USERNAME \#PASSWORD ENAME \
-	    LUSERNAME NAME BLACKLISTHOSTS
+	    LUSERNAME NAME BLACKLISTHOSTS USELETSENCRYPT MESSLIMIT PORT465
 	do
 	    sed -i -e "/^$par/ d" /etc/genpdsdm/parameters
 	    [ ${par:0:1} = "#" ] && unset ${par:1} || unset $par
@@ -390,34 +384,27 @@ dlog "count=$count, domain name=$DOMAINNAME, host name=$HOSTNAME"
 grep -q '\.' /etc/hostname
 if [ $? -eq 0 -o -z "$HOSTNAME" -o $count -eq 0 -o -z "$DOMAINNAME" ] ; then
     # HOSTNAME not known or contains a dot and/or no DOMAINNAME
-    while true ; do
-	if [ $DIAL -ne 0 ] ; then
-	    echo ""
-	    echo Questions about host name and domain name
-	    echo ""
-	    echo "The host name can be any name and consist of letters, digits, a \"_\" and/or \"-\""
-	    echo "This name should not be smtp or mail or imap, these names will be used elsewhere in the server"
-	    echo -n "Enter the name of the system: "
-	    read HOSTNAME
-	    echo ""
-	    echo "An example of the domain name is: example.com; should at least contain one dot"
-	    echo "The script requires the existence of a DNS for this domain with A MX records for the domain"
-	    echo "The MX record should point to smtp.<domain_name> or mail.<domain_name>, which both should have"
-	    echo "an A record. Also an imap.<domain_name> A record should exist, all with the same IP address"
-	    echo -n "Enter the domain name: "
-	    read DOMAINNAME
-	else
-            $dialog1 --form "\
+	   message1="\
 Questions about host name and domain name\n\
 The host name can be any name and consist of letters, digits, a \"_\"\n\
 and/or \"-\". This name should not be smtp or mail or imap, these names\n\
-will be used elsewhere in the server. An example of the domain name is:\n\
-example.com; should at least contain one dot. The script requires the\n\
-existence of a DNS for this domain with a MX record for the domain.\n\
-The MX record should point to smtp.<domain_name> or mail.<domain_name>,\n\
-which both should have an A record. Also an imap.<domain_name> A record\n\
-should exist, all with the same IP address." 15 0 2 \
-"Hostname :    " 1 1 "" 1 18 15 15 \
+will be used elsewhere in the server."
+	  message2="\
+An example of the domain name is: example.com; should at least contain\n\
+one dot. The script requires the existence of a DNS for this domain with\n\
+a MX record for the domain. The MX record should point to\n\
+smtp.<domain_name> or mail.<domain_name>; both should have an A record.\n\
+Also an imap.<domain_name> A record should exist, all with the same IP address."
+    while true ; do
+	if [ $DIAL -ne 0 ] ; then
+	    /usr/bin/echo -e -n "\n${message1}\nEnter the name of the system: "
+	    read HOSTNAME
+	    /usr/bin/echo -e -n "\n${message2}\nEnter the domain name: "
+	    read DOMAINNAME
+	else
+	    dlog "Window for host name and domain name"
+            $dialog1 --form "${message1}\n${message2}" 15 0 2 \
+"Hostname :    " 1 1 "" 1 18 20 20 \
 "Domain name : " 2 1 "" 2 18 25 25 2> /tmp/u.tmp
             [ $? -ne 0 ] && exitmsg "Script canceled by user or other error"
             HOSTNAME="$(head -1 /tmp/u.tmp)"
@@ -425,38 +412,42 @@ should exist, all with the same IP address." 15 0 2 \
             rm /tmp/u.tmp
 	fi
 	if [ -z "$HOSTNAME" -o -z "$DOMAINNAME" ] ; then
-	    message="Hostname and Domainname must not be empty!"
-            [ $DIAL -ne 0 ] && echo "$message" || $dialog1 --msgbox "$message" 6 50 
-	else
-	    break
+	    message3="Hostname and Domainname must not be empty!"
+            [ $DIAL -ne 0 ] && echo "$message3" || $dialog1 --msgbox "$message3" 6 50 
 	fi
-    done
-    # further checkes on names
-    message="\n\
+	# further checkes on names
+	message4="\
 ============================================\n\
 = Checking for existing records in the DNS =\n\
 ============================================"
-    [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 7 0
-    [ $DIAL -eq 0 ] && sleep 5
-    message="Errors found by checking:"
-    n=0
-    nslookup -query=A $DOMAINNAME > /tmp/Adomain
-    [ $? -ne 0 ] && message="$message\n\n$DOMAINNAME does not have an A record." && n=$(($n+1))
-    nslookup -query=MX $DOMAINNAME > /tmp/MXdomain
-    [ $? -ne 0 ] && message="$message\n\n$DOMAINNAME does not have an MX record." && n=$(($n+1))
-    nslookup -query=A smtp.$DOMAINNAME > /tmp/smtpdomain
-    [ $? -ne 0 ] && message="$message\n\nsmtp.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
-    nslookup -query=A mail.$DOMAINNAME > /tmp/maildomain
-    [ $? -ne 0 ] && message="$message\n\nmail.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
-    nslookup -query=A imap.$DOMAINNAME > /tmp/imapdomain
-    [ $? -ne 0 ] && message="$message\n\nimap.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
-    if [ $n -ne 0 ] ; then
-	message="$message\n\n\
-Please provide the required records in the DNS for domain\n\
-\"$DOMAINNAME\"\n and start the script again."
-	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" $(($n*2+8)) 60
-	exit 1
-    fi
+	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message4" || $dialog1 --infobox "$message4" 5 0
+	[ $DIAL -eq 0 ] && sleep 5
+	message5="Errors found by checking:"
+	n=0
+	nslookup -query=A $DOMAINNAME > /tmp/Adomain
+	[ $? -ne 0 ] && message5="$message5\n\n$DOMAINNAME does not have an A record." && n=$(($n+1))
+	nslookup -query=MX $DOMAINNAME > /tmp/MXdomain
+	[ $? -ne 0 ] && message5="$message5\n\n$DOMAINNAME does not have an MX record." && n=$(($n+1))
+	nslookup -query=A smtp.$DOMAINNAME > /tmp/smtpdomain
+	[ $? -ne 0 ] && message5="$message5\n\nsmtp.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
+	nslookup -query=A mail.$DOMAINNAME > /tmp/maildomain
+	[ $? -ne 0 ] && message5="$message5\n\nmail.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
+	nslookup -query=A imap.$DOMAINNAME > /tmp/imapdomain
+	[ $? -ne 0 ] && message5="$message5\n\nimap.$DOMAINNAME does not have an A or CNAME record." && n=$(($n+1))
+	dlog "errorcount=$n"
+	if [ $n -ne 0 ] ; then
+	    message5="$message5\n\n\
+Typo? Please try again, otherwise provide the required records in the DNS\n\
+for domain \"$DOMAINNAME\".\n"
+	    if [ $DIAL -ne 0 ] ; then
+		/usr/bin/echo -e "${message5}Enter Ctrl+C on the next question."
+	    else
+	        $dialog1 --msgbox "${message5}Select Cancel on the next question." $(($n*2+9)) 80
+	    fi
+	    continue
+	fi
+	break
+    done
     gipaddress=$(grep 'Address:' /tmp/Adomain | tail -1)
     gipaddress=${gipaddress#* }
     sub[0]="smtp" ; sub[1]="mail" ; sub[3]="imap" ; i=0 ; n=0
@@ -473,7 +464,8 @@ Please fix it!"
 	[ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 7 0
 	exit 1
     fi
-    PROXYIP=$gipaddess
+    dlog "PROXYIP=$gipaddress"
+    PROXYIP=$gipaddress
     wrren PROXYIP
     #
     # Check if there is already an entry in /etc/hosts for the server, if so remove it and enter such an entry.
@@ -515,7 +507,7 @@ Is this OK?"
 	/usr/bin/echo -e -n "${message}\n\nEnter y or Y for OK, anything else is NO and the script will terminate : "
 	read answ
     else
-	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 10 60
+	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 7 80
 	[ $? -eq 0 ] && answ="y"
     fi
     case $answ in
@@ -529,8 +521,8 @@ so when you invoke the script again, you will be asked again\n\
 for the host name and the domain name."
 		  ;;
     esac
-    echo "PROXYIP=$PROXYIP" >> /etc/genpdsdm/parameters
-    echo "DOMAINNAME_done=yes" >> /etc/genpdsdm/parameters
+    DOMAINNAME_done="yes"
+    wrren DOMAINNAME_done
 fi
 dlog "Check $HOSTNAME.$DOMAINNAME is OK."
 if [ "$HOSTNAME.$DOMAINNAME" != "$(hostname --fqdn)" ] ; then
@@ -541,10 +533,11 @@ This means the system needs to reboot to establish that."
 ${message}\nPress Enter to reboot or Ctrl+C to abort : "
 	read answ
     else
-	$dialog1 --msgbox "$message\nUse Yes to reboot or Cancel to abort" 6 0
-	[ $? -ne 0 ] && exit
+	$dialog1 --yesno "$message\nUse Yes to reboot or No to abort." 8 80
+	[ $? -ne 0 ] && exitmsg "Aborted on user request."
     fi
     reboot
+    exit
 fi
 #
 # Read other needed parameters
@@ -560,8 +553,64 @@ if [ $NEW -eq 0 -o $OLD -eq 0 -o -z "$PARAMETERS_done" ] ; then
     #
     # Restore possibly earlier changed files
     #
-    cp -a /var/adm/backup/genpdsdm/canonical.org /etc/postfix/canonical
     [ -f /etc/postfix/sasl_passwd ] && rm /etc/postfix/sasl_passwd
+    #
+    # Message size limit
+    #
+    message="Do you want a limit on the message size? The standard limit is 10240000.\n\
+A recommended value is 30M, equivalent to 30000000.\n\
+A value less than the default will not be accepted."
+    n=10
+    while true
+    do
+	dlog "Start setting MESSLIMIT, MESSLIMIT=$MESSLIMIT"
+	[ -z "$MESSLIMIT" ] && lmes=30000000 || lmes=$MESSLIMIT
+	if [ $DIAL -ne 0 ] ; then
+	    /usr/bin/echo -e -n "\n${message}\nEnter the limit on the message size : "
+	    read lmes
+	else
+	   $dialog1 --form "$message" $n 80 1 "Message size limit : " 1 5 "$lmes" 1 28 15 15 2>/tmp/msize.txt
+	   dlog "Returncode from dialog=$?"
+	   lmes=$(head -1 /tmp/msize.txt)
+	   rm /tmp/msize.txt
+	fi
+	dlog "lmes=$lmes"
+	lmes=$(($lmes+0))
+	if [ $lmes -lt 10240000 ] ; then
+	    if [ "${message:0:1}" != "I" ] ; then
+		 message="Input is wrong. Try again.\n${message}"
+		 n=11
+	    fi
+	else
+	    MESSLIMIT=$lmes
+	    break
+	fi
+    done
+    wrren MESSLIMIT
+    dlog "Einde MESSLIMIT=$MESSLIMIT"
+    #
+    # Also port 465?
+    #
+    message="The original port for clients to submit messages to the email server via\n\
+an encrypted connection is 465. This one is now obsolete. But you may have\n\
+clients that still use this port. Messages submitted via this port will not\n\
+be DKIM signed. Do you want this port to be enabled?"
+    n=8
+    if [ -n "$PORT465" ] ; then
+	[ $PORT465 = yes ] && message="${message}\nPrevious answer was Yes." || message="${message}\nPrevious answer was No."
+	n=9
+    fi
+    if [ $DIAL -ne 0 ] ; then
+	/usr/bin/echo -e -n "\n${message}\nAnswer y or Y, anything else means No : "
+	read port465
+    else
+	$dialog1 --yesno "$message" $n 80
+	[ $? -eq 0 ] && port465="y" || port465="n"
+    fi
+    [ "$port465" = "y" -o "$port465" = "Y" ] && PORT465="yes" || PORT465="no"
+    wrren PORT365
+    #
+    # Ralay host
     #
     message="Questions about the relay host of your provider\n\
 We assume the relay host is accessible via port 587\n\
@@ -701,7 +750,7 @@ for this account"
     else
         useradd -c "$NAME" -m -p genpdsdm "$LUSERNAME" > /dev/null
 	message="The user $LUSERNAME has been created with password \"genpdsdm\"."
-	[ $DIAL -ne 0 ] && /usr/bin/echo -e "\n$message" || $dialog1 --msgbox "$message" 5 50
+	[ $DIAL -ne 0 ] && /usr/bin/echo -e "\n$message" || $dialog1 --msgbox "$message" 6 50
     fi
     dlog "lusername=$LUSERNAME,name=$NAME"
     k=11
@@ -917,8 +966,8 @@ Common Names (CN) will be imap.$DOMAINNAME and smtp.$DOMAINNAME.\n"
 	    # Country code
 	    #
 	    [ ! -z "$COUNTRYCODE" ] && \
-		message="\n${message}\nA single Enter will take \"$COUNTRYCODE\" as its value"
-            echo -n -e "${message}\nEnter the two character country code: "
+		message="${message}\nA single Enter will take \"$COUNTRYCODE\" as its value"
+            echo -n -e "\n${message}\nEnter the two character country code: "
 	    read countrycode
 	    [ -z $countrycode ] && countrycode="$COUNTRYCODE"
 	    #
@@ -1183,7 +1232,7 @@ This is not supported!!\n" ; k=$(($k+2))
 	    [ "$passw" != "" ] && PASSW[$j]=$passw
 	    j=$(($j+1))
 	done
-	dlog "j=$j, emaila=$emaila, EMAILS[$j]=${EMAILA[$j]}"
+	dlog "j=$j, emaila=$emaila, EMAILA[$j]=${EMAILA[$j]}"
 	EMAILA[$j]="" 
     fi # end of new
     dlog "== Parameters read; save parameters in parameters =="
@@ -1195,7 +1244,7 @@ This is not supported!!\n" ; k=$(($k+2))
 	done
 	j=$(($j+1))
     done
-    # Make sure next value for j is null
+    # Make sure next value of EMAILA for j is null
     EMAILA[$j]=""
     wrren EMAILA[$j]
     for par in RELAYHOST USERNAME \#PASSWORD LUSERNAME NAME ENAME ; do
@@ -1223,6 +1272,28 @@ This is not supported!!\n" ; k=$(($k+2))
     for par in COUNTRYCODE STATEPROVINCE LOCALITYCITY ORGANIZATION ; do
 	wrren $par
     done
+    #
+    # Replacement of self-signed certificates by certificates from Let's Encrypt
+    # This means you have a folder /etc/letsencrypt/live/<DOMAINNAME>
+    #
+    ls -d /etc/letsencrypt/live/*$DOMAINNAME > /dev/null
+    if [ $? -eq 0 ] ; then
+	message="You do have certicates signed by Let's Encrypt,\n\
+do you want to use these certificates for postfix and dovecot?"
+	if [ $DIAL -ne 0 ] ; then
+	    /usr/bin/echo -e -n "\n${message}\nAnswer y or Y, or anything else if not : "
+	    read answ
+	else
+	    $dialog1 --msgbox "$message" 6 70
+	    [ $? -eq 0 ] && answ="y"
+	fi
+	[ "$answ" = "y" -o "$answ" = "Y" ] && USELETSENCRYPT="yes" || USELETSENCRYPT="no"
+    else
+	USELETSENCRYPT="no"
+    fi
+    wrren USELETSENCRYPT
+    dlog "USELETSENCRYPT=$USELETSENCRYPT"
+    #
     [ -z "$PARAMETERS_done" ] && echo PARAMETERS_done=yes >> /etc/genpdsdm/parameters
 fi
 dlog "== End needed parameters =="
@@ -1243,13 +1314,22 @@ if [ -z "$FIREWALL_config" ] ; then
     [ "$(firewall-cmd --list-interface --zone=public)" != "$interf" ] && run "firewall-cmd --zone=public --add-interface=$interf"
     firewall-cmd --list-services --zone=public | grep -q " smtp "
     [ $? -ne 0 ] && run 'firewall-cmd --zone=public --add-service=smtp'
+    firewall-cmd --list-services --zone=public | grep -q "smtp-submission"
+    [ $? -ne 0 ] && run 'firewall-cmd --zone=public --add-service=smtp-submission'
+    if [ "$PORT465" = "yes" ] ; then
+	firewall-cmd --list-services --zone=public | grep -q " smtps "
+        [ $? -ne 0 ] && run 'firewall-cmd --zone=public --add-service=smtps'
+    else
+	firewall-cmd --list-services --zone=public | grep -q " smtps"
+        [ $? -eq 0 ] && run 'firewall-cmd --zone=public --remove-service=smtps'
+    fi
     localdomain=$(ip r | tail -1)
     localdomain=${localdomain%% *}
     [ "$(firewall-cmd --zone=internal --list-sources)" != "$localdomain" ] &&
 	run "firewall-cmd --zone=internal --add-source=$localdomain"
-    firewall-cmd --list-services --zone=internal | grep " imap "
+    firewall-cmd --list-services --zone=internal | grep -q " imap "
     [ $? -ne 0 ] && run 'firewall-cmd --zone=internal --add-service=imap'
-    firewall-cmd --list-services --zone=internal | grep " imaps "
+    firewall-cmd --list-services --zone=internal | grep -q " imaps "
     [ $? -ne 0 ] && run 'firewall-cmd --zone=internal --add-service=imaps'
     firewall-cmd --list-services --zone=public | grep -q " imaps "
     [ $? -ne 0 ] && run 'firewall-cmd --zone=public --add-service=imaps'
@@ -1301,7 +1381,16 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
 		/etc/postfix/sender_dependent_default_transport
 	j=$(($j+1))
     done
-    echo "$LUSERNAME	$ENAME" >> /etc/postfix/canonical
+    if [ ! -f /etc/postfix/canonical ] ; then
+	/usr/bin/echo -e "$LUSERNAME\t$ENAME" >> /etc/postfix/canonical
+    else
+	grep -q -e "^${LUSERNAME}[[:blank:]]" /etc/postfix/canonical
+	if [ $? -ne 0 ] ; then
+	     /usr/bin/echo -e "$LUSERNAME\t$ENAME" >> /etc/postfix/canonical
+	else
+	    sed -i -e "/${LUSERNAME}[[:blank:]]/ c $LUSERNAME\t$ENAME" /etc/postfix/canonical
+	fi
+    fi
     postmap /etc/postfix/sasl_passwd
     postmap /etc/postfix/sender_dependent_relayhost
     [ -f /etc/postfix/sender_dependent_default_transport ] && postmap /etc/postfix/sender_dependent_default_transport
@@ -1311,6 +1400,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "proxy_interfaces = $PROXYIP"
     postconf "myhostname = smtp.$DOMAINNAME"
     postconf "mydomain = $DOMAINNAME"
+    postconf "message_size_limit = $MESSLIMIT"
     db_type=$(postconf default_database_type)
     db_type=${db_type##* }
     postconf "alias_maps = ${db_type}:/etc/aliases"
@@ -1322,6 +1412,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     done
     postconf "$str"
     postconf "myorigin = \$mydomain"
+    postconf "mynetworks = 127.0.0.0/8 192.168.0.0/16 [::1]/128 [fe80::]/10"
     postconf "mynetworks_style = subnet"
     postconf "canonical_maps = ${db_type}:/etc/postfix/canonical"
     if [ "${EMAILA[0]}" != "" ] ; then
@@ -1332,9 +1423,9 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
 	postconf "smtp_tls_per_site = ${db_type}:/etc/postfix/tls_per_site"
     fi
     postmap /etc/postfix/canonical
-    str="smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_invalid_helo_hostname,\
-      reject_non_fqdn_sender, reject_unknown_sender_domain, reject_non_fqdn_recipient, reject_unknown_recipient_domain,\
-      reject_unauth_destination"
+    str="smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination,\
+	reject_invalid_helo_hostname, reject_non_fqdn_sender, reject_unknown_sender_domain, reject_non_fqdn_recipient,\
+       	reject_unknown_recipient_domain"
     blhs="$BLACKLISTHOSTS"
     while [ "$blhs" != "" ]
     do
@@ -1366,6 +1457,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "smtp_tls_CApath = /etc/ssl/certs"
     postconf "smtp_tls_ciphers = medium"
     postconf "smtp_tls_protocols = >=TLSv1, <=TLSv1.3"
+    # In production next one should be comment
     postconf "smtp_tls_note_starttls_offer = yes"
     postconf "smtp_tls_loglevel = 1"
     postconf "smtp_tls_session_cache_database = ${db_type}:/var/lib/postfix/smtp_tls_session_cache"
@@ -1379,8 +1471,10 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "content_filter = amavis:[127.0.0.1]:10024"
     postconf "strict_rfc821_envelopes = yes"
     postconf "disable_vrfy_command = yes"
-    grep -q MAINCF_done /etc/genpdsdm/parameters
-    [ $? -ne 0 ] && echo "MAINCF_done=yes" >> /etc/genpdsdm/parameters
+    # Next one is to have postfix advertise AUTH support for older Outlook/Exchange versions
+    postconf "broken_sasl_auth_clients = yes"
+    MAINCF_done="yes"
+    wrren MAINCF_done
     [ $DIAL -eq 0 ] && sleep 5
 fi
 #
@@ -1393,11 +1487,10 @@ if [ -z "$MASTERCF_done" -o $NEW -eq 0 ] ; then
 ========================================="
     [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 5 0
     [ -f /var/adm/backup/genpdsdm/master.cf.org ] && cp -a /var/adm/backup/genpdsdm/master.cf.org /etc/postfix/master.cf
-    if [ $OS != raspbian ] ; then
+    if [ $OS != raspbian ] ; then # here for openSUSE
 	cat <<EOF > /tmp/sedscript.txt
-#/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
-#    -o smtpd_milters=inet:127.0.0.1:8893
-/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit
+/^smtp      inet/a\    -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
+    -o smtpd_milters=inet:127.0.0.1:8893
 /^#amavis    unix/,/#  -o max_use=20/ s/^#//
 /^#submission inet/,/^#   -o smtpd_reject_unlisted_recipient=no/ {
      s/^#//
@@ -1410,7 +1503,13 @@ if [ -z "$MASTERCF_done" -o $NEW -eq 0 ] ; then
 /^#localhost:10025 inet/,/^#  -o relay_recipient_maps=/ s/#//
 /^#tlsmgr    unix/ s/#//
 EOF
-    else
+    if [ "$PORT465" = "yes" ] ; then
+	cat <<EOF >> /tmp/sedscript.txt
+/^#submissions     inet/,/^#    -o smtpd_sasl_auth_enable=yes/ s/^#//
+EOF
+    fi
+    else # here for Raspbian
+	dlog "Start first part of sedscript"
 	cat <<EOF > /tmp/sedscript.txt
 /^smtp      inet/ a \
 \ \ \ \ -o smtpd_relay_restrictions=check_policy_service,unix:private/policyd-spf,permit\n\
@@ -1427,7 +1526,18 @@ s/#  -o/  -o/
 /^  -o smtpd_tls_security_level=encrypt/ a\
 \ \ -o content_filter=smtp:[127.0.0.1]:10026
 EOF
+	if [ "$PORT465" = "yes" ] ; then
+	    dlog "Start of port 465 part of sedscript"
+	    cat <<EOF >> /tmp/sedscript.txt
+/^#submissions     inet/,/^#  -o milter_macro_daemon_name=ORIGINATING/ {
+s/#sub/sub/
+s/#  -o/  -o/
+}
+EOF
+	   dlog "sedscript=$(cat /tmp/sedscript.txt)"
+	fi
     fi
+    cp /tmp/sedscript.txt /tmp/sedcript.txt.sav
     sed -i -f /tmp/sedscript.txt /etc/postfix/master.cf
     if [ $OS = raspbian ] ; then
 	cat <<EOF > /tmp/sedscript.txt
@@ -1531,9 +1641,9 @@ if [ -z "$POSTFIXCERTIFICATES_done" -o $NEW -eq 0 -o $OLD -eq 0 ] ; then
     fi
     [ $DIAL -eq 0 ] && sleep 5
     message="\
-=========================================\n\
-= Generating Certificates for postfix.. =\n\
-========================================="
+==========================================\n\
+= Generating Certificates for postfix... =\n\
+=========================================="
     [ $DIAL -ne 0 ] && /usr/bin/echo -e "$message" || $dialog1 --infobox "$message" 5 0
     sed -i -e "/^commonName / s/Certificate Authority/smtp.$DOMAINNAME/" \
 	-e "/^organizationalUnitName / s/Certificate Authority/Email server/" \
@@ -1862,7 +1972,6 @@ EOF
     [ $? -ne 0 ] && echo "AMAVIS_done=yes" >> /etc/genpdsdm/parameters
     [ $DIAL -eq 0 ] && sleep 5
 fi
-[ -f /tmp/sedscript.txt ] && rm /tmp/sedscript.txt
 #
 # Configuration of DMARC
 #
@@ -1908,6 +2017,7 @@ RequiredHeaders true
 EOF
     fi
     sed -i -f /tmp/sedscript.txt /etc/opendmarc.conf
+    rm /tmp/sedscript.txt
     grep -q -E "^dmarc-failures:[[:blank:]]" /etc/aliases
     if [ $? -eq 0 ] ; then
 	sed -i -e "/^dmarc-failures:[[:blank:]]/ c dmarc-failures:\tpostmaster" /etc/aliases
@@ -1929,7 +2039,52 @@ EOF
     [ $? -ne 0 ] && echo "DMARC_done=yes" >> /etc/genpdsdm/parameters
     [ $DIAL -eq 0 ] && sleep 5
 fi
-#
+if [ "$USELETSENCRYPT" = "yes" ] ; then
+    dlog "Trying to replace self-signed certificates by Let's Encrypt ones"
+    message="\
+======================================\n\
+= Replacing self-signed certificates =\n\
+= by those signed by Let's Encrypt   =\n\
+======================================"
+    [ $DIAL -ne 0 ] && /usr/bin/echo -e "\n${message}\n" || $dialog1 --infobox "$message" 6 42
+    sleep 5
+    n=$(ls -d /etc/letsencrypt/live/*$DOMAINNAME | wc -l)
+    if [ $n -eq 0 ] ; then
+	message="Folder /etc/letsencrypt/live does not have an entry for $DOMAINNAME\n\
+This should not happen. Inconsistancy. Certificates not replaced."
+	[ $DIAL -ne 0 ] && /usr/bin/echo -e "\n${message}\n" || $dialog1 --infobox "$message" 4 80
+	sleep 5
+    elif [ $n -eq 1 ] ; then
+	mv /etc/postfix/ssl/certs/postfixcert.pem /etc/postfix/ssl/certs/postfixcert.pem.sssav
+	cp -Lp /etc/letsencrypt/live/$DOMAINNAME/fullchain.pem /etc/postfix/ssl/certs/postfixcert.pem
+	mv /etc/postfix/ssl/certs/postfixkey.pem /etc/postfix/ssl/certs/postfixkey.pem.sssav
+	cp -Lp /etc/letsencrypt/live/$DOMAINNAME/privkey.pem /etc/postfix/ssl/certs/postfixkey.pem
+	mv /etc/ssl/private/dovecot.crt /etc/ssl/private/dovecot.crt.sssav
+	cp -Lp /etc/letsencrypt/live/$DOMAINNAME/fullchain.pem /etc/ssl/private/dovecot.crt
+	mv /etc/ssl/private/dovecot.pem /etc/ssl/private/dovecot.pem.sssav
+	cp -Lp /etc/letsencrypt/live/$DOMAINNAME/privkey.pem /etc/ssl/private/dovecot.pem
+	dlog "Replaced by the ones from $DOMAINNAME"
+    else
+	if [ ! -d /etc/letsencrypt/live/smtp.$DOMAINNAME -o ! -d /etc/letsencrypt/live/imap.$DOMAINNAME ] ; then
+	    message="One or both folders /etc/letsencrypt/live/{smtp|imap}.$DOMAINNAME\n\
+do not exist. Inconsistancy. Certificates not replaced."
+	    [ $DIAL -ne 0 ] && /usr/bin/echo -e "\n${message}\n" || $dialog1 --infobox "$message" 4 80
+	    sleep 5
+	else
+	    mv /etc/postfix/ssl/certs/postfixcert.pem /etc/postfix/ssl/certs/postfixcert.pem.sssav
+	    cp -Lp /etc/letsencrypt/live/smtp.$DOMAINNAME/fullchain.pem /etc/postfix/ssl/certs/postfixcert.pem
+	    mv /etc/postfix/ssl/certs/postfixkey.pem /etc/postfix/ssl/certs/postfixkey.pem.sssav
+	    cp -Lp /etc/letsencrypt/live/smtp.$DOMAINNAME/privkey.pem /etc/postfix/ssl/certs/postfixkey.pem
+	    dlog "Replaced by the ones from smtp.$DOMAINNAME"
+	    mv /etc/ssl/private/dovecot.crt /etc/ssl/private/dovecot.crt.sssav
+	    cp -Lp /etc/letsencrypt/live/imap.$DOMAINNAME/fullchain.pem /etc/ssl/private/dovecot.crt
+	    mv /etc/ssl/private/dovecot.pem /etc/ssl/private/dovecot.pem.sssav
+	    cp -Lp /etc/letsencrypt/live/imap.$DOMAINNAME/privkey.pem /etc/ssl/private/dovecot.pem
+	    dlog "Replaced by the ones from imap.$DOMAINNAME"
+	fi
+    fi
+fi
+#smtp
 # Restart possibly changed services
 #
 message="\

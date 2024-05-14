@@ -9,7 +9,6 @@ postfix-master.cf.patch
 vernpdadsd.sh
 koppelingen.txt
 postfix.ymp
-postfixsettings.txt
 beelaertsict.nl.dkim20230908.pem
 beelaertsict.nl.dkim20230908.txtrecord
 postfix.ymp
@@ -21,3 +20,4 @@ testdkim.exp.new
 postcfpfx.sh
 test.sh
 testmailx.sh
+getfan.sh

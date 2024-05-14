@@ -1,0 +1,39 @@
+opendmarc	opendmarc/app-password-confirm	password	
+# Database type to be used by opendmarc:
+opendmarc	opendmarc/database-type	select	mysql
+# MySQL username for opendmarc:
+opendmarc	opendmarc/db/app-user	string	
+# MySQL database name for opendmarc:
+opendmarc	opendmarc/db/dbname	string	opendmarc
+# Configure database for opendmarc with dbconfig-common?
+opendmarc	opendmarc/dbconfig-install	boolean	false
+# Reinstall database for opendmarc?
+opendmarc	opendmarc/dbconfig-reinstall	boolean	false
+# Deconfigure database for opendmarc with dbconfig-common?
+opendmarc	opendmarc/dbconfig-remove	boolean	true
+# Perform upgrade on database for opendmarc with dbconfig-common?
+opendmarc	opendmarc/dbconfig-upgrade	boolean	true
+opendmarc	opendmarc/install-error	select	abort
+opendmarc	opendmarc/internal/reconfiguring	boolean	false
+opendmarc	opendmarc/internal/skip-preseed	boolean	false
+opendmarc	opendmarc/missing-db-package-error	select	abort
+opendmarc	opendmarc/mysql/admin-pass	password	
+opendmarc	opendmarc/mysql/admin-user	string	
+# MySQL application password for opendmarc:
+opendmarc	opendmarc/mysql/app-pass	password	
+opendmarc	opendmarc/mysql/authplugin	select	default
+# Connection method for MySQL database of opendmarc:
+opendmarc	opendmarc/mysql/method	select	Unix socket
+opendmarc	opendmarc/password-confirm	password	
+#opendmarc	opendmarc/passwords-do-not-match	error	
+# Delete the database for opendmarc?
+opendmarc	opendmarc/purge	boolean	false
+# Host name of the MySQL database server for opendmarc:
+opendmarc	opendmarc/remote/host	select	localhost
+# Host running the MySQL server for opendmarc:
+opendmarc	opendmarc/remote/newhost	string	
+opendmarc	opendmarc/remote/port	string	3306
+opendmarc	opendmarc/remove-error	select	abort
+# Back up the database for opendmarc before upgrading?
+opendmarc	opendmarc/upgrade-backup	boolean	true
+opendmarc	opendmarc/upgrade-error	select	abort
