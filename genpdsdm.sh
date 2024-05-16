@@ -501,10 +501,10 @@ fi
 dlog "== End of finding domain name \"$DOMAINNAME\" and host name \"$HOSTNAME\""
 dlog "== Check if domain name is OK =="
 if [ -z "$DOMAINNAME_done" ] ; then
-    message="\nThe domain name \"$DOMAINNAME\" will be used throughout this script\n\
+    message="The domain name \"$DOMAINNAME\" will be used throughout this script\n\
 Is this OK?"
     if [ $DIAL -ne 0 ] ; then
-	/usr/bin/echo -e -n "${message}\n\nEnter y or Y for OK, anything else is NO and the script will terminate : "
+	/usr/bin/echo -e -n "\n${message}\n\nEnter y or Y for OK, anything else is NO and the script will terminate : "
 	read answ
     else
 	$dialog1 --yesno "${message}\nSelecting NO will terminate the script" 7 80
@@ -717,14 +717,14 @@ for this account"
                 PNAME=${PNAME%:*} # remove shell
                 PNAME=${PNAME%:*} # remove home folder
                 PNAME=${PNAME##*:} # get comment field with name
-            fi
+	    fi
 	fi
 	n=0
 	dlog "lusername=$lusername, name=$name, PNAME=$PNAME"
         LUSERNAME="$lusername"
 	message=""
 	[ -z "$LUSERNAME" ] && message="The account name of the administator is empty.\n" && n=$(($n+1))
-        NAME="$name"
+	NAME="$name"
 	[ -z "$NAME" ] && message="${message}The full name, comment in /etc/passwd, is empty.\n" && n=$(($n+1))
 	if [ $n -eq 0 ] ; then
 	    break
@@ -1276,9 +1276,9 @@ This is not supported!!\n" ; k=$(($k+2))
     # Replacement of self-signed certificates by certificates from Let's Encrypt
     # This means you have a folder /etc/letsencrypt/live/<DOMAINNAME>
     #
-    ls -d /etc/letsencrypt/live/*$DOMAINNAME > /dev/null
+    ls -d /etc/letsencrypt/live/*$DOMAINNAME > /dev/null 2>&1
     if [ $? -eq 0 ] ; then
-	message="You do have certicates signed by Let's Encrypt,\n\
+	message="You do have certificates signed by Let's Encrypt,\n\
 do you want to use these certificates for postfix and dovecot?"
 	if [ $DIAL -ne 0 ] ; then
 	    /usr/bin/echo -e -n "\n${message}\nAnswer y or Y, or anything else if not : "
