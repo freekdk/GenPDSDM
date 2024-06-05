@@ -3,7 +3,7 @@
 
 **Gen**erate system with **P**ostfix, **D**ovecot, **S**PF, **D**KIM and D**M**ARC
 ## Description
-GENPDSDM is a bash script to generate in a headless system a email system (postfix) to receive (stored in IMAP server dovecot) and send messages with a number of available security features. This system serves it own domain. The supported secutity features are SPF, DKIM, and DMARC supported by AmaVis, which includes ClamAV and Spamassassin. It is primairely designed for openSUSE Leap 15.5 on a Raspberry Pi 4B. However it is usable on Tumbleweed and other architectures as well. Tested on Raspberry Pi OS (bookworm) and in a Virtual Host on Debian (bookworm).
+GENPDSDM is a bash script to generate in a headless system an email system (postfix) to receive (stored in IMAP server dovecot) and send messages with a number of available security features. This system serves it own domain. The supported security features are SPF, DKIM, and DMARC supported by AmaVis, which includes ClamAV and Spamassassin. It is primairely designed for openSUSE Leap 15.5 on a Raspberry Pi 4B. However it is usable on Tumbleweed and other architectures as well. Tested on Raspberry Pi OS (bookworm) and in a Virtual Host on Debian (bookworm).
 
 ## Documentation
 The documentation, which describes what will be done by this script is in the [openSUSE wiki](https://en.opensuse.org/Mail_server_HOWTO) and in the files `genpdsdmrpi.pdf`, which is generated from `genpdsdmrpi.odt`.
@@ -21,6 +21,8 @@ Also the generated private key for DKIM signing and the public key, which needs 
 
 When defining the domain name, the script will perform some checks on the presence of needed records in the DNS, both your own and the name of a relayhost.
 ### Things the script can't do
-There is no known general API to enter values in a DNS, so this is something you need to do yourself. Obviously you need to have A and, if you use IPv6, AAAA records, for access to your email server (port 25 and possibly 587), with names {mail,smtp}.\<your_domain> and with dovecot (port 993), with imap.\<your_domain>. You also need to enter the generated DKIM public key as a TXT record and TXT records for SPF and DMARC (How will be covered in the partly written document, `genmailmodule.pdf` generated from `genmailmodule.odt`).
+There is no known general API to enter values in a DNS, so this is something you need to do yourself. Obviously you need to have A and, if you use IPv6, AAAA records, for access to your email server (port 25 and possibly 587, if needed also 465), with names {mail,smtp}.\<your_domain> and with dovecot (port 993), with imap.\<your_domain>. You also need to enter the generated DKIM public key as a TXT record and TXT records for SPF and DMARC (How will be covered in the document, `genpdsdmrpi.pdf` generated from `genpdsdmrpi.odt`).
 ### Bugs
-There is no support for IPv6.
+There is currently no support for IPv6.
+
+The TXT records for SPF and DMARC do not enforce rejects on the receiving server. After some time, you may want to change that. The documentation gives hints how to enforce rejection.

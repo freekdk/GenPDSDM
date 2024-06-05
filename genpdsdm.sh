@@ -16,8 +16,9 @@
 #
 #**************************************************************************
 #
-# Script to generate an email system that supports a single domain and
-# implements all security features available for such a system. It is
+# Script to generate an email system that supports a main domain and, if
+# needed, a few other domains that have a close relation with this domain.
+# It implements all security features available for such a system. It is
 # designed to follow the procedure outlined in the openSUSE wiki page
 # https://en.opensuse.org/Mail_server_HOWTO after heading SMTP.
 #
@@ -33,11 +34,13 @@
 # Version 1.2.0 Added option to use dialog in asking questions and showing progress
 # Version 1.3.0 Added support for Raspberry Pi OS with Bookworm
 # Version 1.4.0 Added support for additional destination domains
+# Version 1.4.1 Replaced obsolete parameters by recommended
 #
 # Version designed on openSUSE Leap 15.5 on Raspberry Pi 4B
-# This version should also work in other environments of openSUSE
-# Tested also on Tumbleweed and x86_64
+# This version also works in other environments of openSUSE
+# Tested also on Tumbleweed, Leap 15.6 and x86_64
 # Tested in Rasbberry Pi OS (bookworm) Lite 32 bit and 64 bit on Rasberry Pi 4B
+# and Debian (bookworm) in a Virtual Machine
 #
 # ---------------------------------------------------------------------
 #
@@ -223,10 +226,12 @@ also possible."
 	[ $OS = 15.6 ] && OSl=15.5 || OSl=$OS
 	if [ ! -f /etc/zypp/repos.d/mail-server ] ; then
 	    run "zypper ar https://download.opensuse.org/repositories/server:/mail/$OSl/ server_mail"
-	    zypper ref server_mail
+	    run "zypper ar https://download.opensuse.org/repositories/devel:/languages:/perl/$OS language_perl"
+	    zypper ref server_mail language_perl
 	    run 'zypper in -y --no-recommends opendmarc'
 	    # disable repository for not having conflicts during updates
             run 'zypper mr -d server_mail'
+	    run 'zypper mr -d language_perl'
 	fi
     else
 	run 'apt-get -y update'
@@ -264,7 +269,7 @@ also possible."
 	cp -a /etc/postfix/sender_dependent_relayhost /var/adm/backup/genpdsdm/sender_dependent_relayhost.org
     [ -f /etc/postfix/sender_dependent_default_transport ] && \
 	cp -a /etc/postfix/sender_dependent_default_transport /var/adm/backup/genpdsdm/sender_dependent_default_transport.org
-    [ -f /etc/postfix/tls_per_site ] && cp -a /etc/postfix/tls_per_site /var/adm/backup/genpdsdm/tls_per_site.org
+    [ -f /etc/postfix/tls_policy_maps ] && cp -a /etc/postfix/tls_policy /var/adm/backup/genpdsdm/tls_policy.org
     cp -a /etc/dovecot/dovecot.conf /var/adm/backup/genpdsdm/dovecot.conf.org
     cp -a /etc/dovecot/conf.d/10-ssl.conf /var/adm/backup/genpdsdm/10-ssl.conf.org
     cp -a /etc/dovecot/conf.d/10-master.conf /var/adm/backup/genpdsdm/10-master.conf.org
@@ -294,7 +299,7 @@ if [ "$OLD" -eq 0 -o "$NEW" -eq 0 ] ; then
 	cp -a /var/adm/backup/genpdsdm/sender_dependent_relayhost.org /etc/postfix/sender_dependent_relayhost
     [ -f /var/adm/backup/genpdsdm/sender_dependent_default_transport.org ] && \
 	cp -a /var/adm/backup/genpdsdm/sender_dependent_default_transport.org /etc/postfix/sender_dependent_default_transport
-    [ -f /var/adm/backup/genpdsdm/tls_per_site.org ] && cp -a /var/adm/backup/genpdsdm/tls_per_site.org /etc/postfix/tls_per_site
+    [ -f /var/adm/backup/genpdsdm/tls_policy.org ] && cp -a /var/adm/backup/genpdsdm/tls_policy.org /etc/postfix/tls_policy
     [ -f /var/adm/backup/genpdsdm/dovecot.conf.org ] && cp -a /var/adm/backup/genpdsdm/dovecot.conf.org /etc/dovecot/dovecot.conf
     [ -f /var/adm/backup/genpdsdm/10-ssl.conf.org ] && cp -a /var/adm/backup/genpdsdm/10-ssl.conf.org /etc/dovecot/conf.d/10-ssl.conf
     [ -f /var/adm/backup/genpdsdm/10-master.conf.org ] && cp -a /var/adm/backup/genpdsdm/10-master.conf.org /etc/dovecot/conf.d/10-master.conf
@@ -1363,19 +1368,19 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     else
 	[ -f /etc/postfix/sender_dependent_default_transport ] && rm /etc/postfix/sender_dependent_default_transport
     fi
-    if [ -f /var/adm/backup/genpdsdm/tls_per_site.org ] ; then
-	cp -a /var/adm/backup/genpdsdm/tls_per_site.org /etc/postfix/tls_per_site
+    if [ -f /var/adm/backup/genpdsdm/tls_policy.org ] ; then
+	cp -a /var/adm/backup/genpdsdm/tls_policy.org /etc/postfix/tls_policy
     else
-	[ -f /etc/postfix/tls_per_site ] && rm /etc/postfix/tls_per_site
+	[ -f /etc/postfix/tls_policy ] && rm /etc/postfix/tls_policy
     fi
     echo -e "[$RELAYHOST]:587\t$USERNAME:$PASSWORD" >> /etc/postfix/sasl_passwd
-    echo -e "[$RELAYHOST]:587\tMUST" >> /etc/postfix/tls_per_site
+    echo -e "[$RELAYHOST]:587\tencrypt" >> /etc/postfix/tls_policy
     j=0
     while [ "${EMAILA[$j]}" != "" ]
     do
 	echo -e "[${ADDRELAYS[$j]}]:${PORT[$j]}\t${USERNAM[$j]}:${PASSW[$j]}" >> /etc/postfix/sasl_passwd
 	echo -e "${EMAILA[$j]}\t[${ADDRELAYS[$j]}]:${PORT[$j]}" >> /etc/postfix/sender_dependent_relayhost
-	echo -e "[${ADDRELAYS[$j]}]:${PORT[$j]}\tMUST" >> /etc/postfix/tls_per_site
+	echo -e "[${ADDRELAYS[$j]}]:${PORT[$j]}\tencrypt" >> /etc/postfix/tls_policy
 	[ "${PORT[$j]}" = "465" ] && \
 	    echo -e "${EMAILA[$j]}\t${ADDRELAYS[$j]#*.}_smtps:[${ADDRELAYS[$j]}]:${PORT[$j]}" >> \
 		/etc/postfix/sender_dependent_default_transport
@@ -1394,7 +1399,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postmap /etc/postfix/sasl_passwd
     postmap /etc/postfix/sender_dependent_relayhost
     [ -f /etc/postfix/sender_dependent_default_transport ] && postmap /etc/postfix/sender_dependent_default_transport
-    postmap /etc/postfix/tls_per_site
+    postmap /etc/postfix/tls_policy
     postmap /etc/postfix/canonical
     postconf "inet_interfaces = all"
     postconf "proxy_interfaces = $PROXYIP"
@@ -1420,7 +1425,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
 	[ -f /etc/postfix/sender_dependent_default_transport ] && \
 	    postconf "sender_dependent_default_transport_maps = ${db_type}:/etc/postfix/sender_dependent_default_transport"
 	postconf "smtp_sender_dependent_authentication = yes"
-	postconf "smtp_tls_per_site = ${db_type}:/etc/postfix/tls_per_site"
+	postconf "smtp_tls_policy_maps = ${db_type}:/etc/postfix/tls_policy"
     fi
     postmap /etc/postfix/canonical
     str="smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination,\
@@ -1466,7 +1471,7 @@ if [ -z "$MAINCF_done" -o $NEW -eq 0 ] ; then
     postconf "smtp_sasl_auth_enable = yes"
     postconf "smtp_sasl_tls_security_options = noanonymous"
     postconf "smtp_sasl_security_options = noanonymous"
-    postconf "smtp_use_tls = yes"
+    postconf "smtp_tls_security_level = may"
     postconf "policyd-spf_time_limit = 3600"
     postconf "content_filter = amavis:[127.0.0.1]:10024"
     postconf "strict_rfc821_envelopes = yes"
@@ -1517,7 +1522,7 @@ EOF
 amavis    unix  -       -       y       -       4       smtp\n\
   -o smtp_data_done_timeout=1200\n\
   -o smtp_send_xforward_command=yes\n\
-  -o disable_dns_lookups=yes\n\
+  -o smtp_dns_support_level=disabled\n\
   -o max_use=20
 /^#submission inet/,/^#  -o milter_macro_daemon_name=ORIGINATING/ {
 s/#sub/sub/
